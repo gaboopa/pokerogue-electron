@@ -1,75 +1,113 @@
-# PokeRogue Offline Electron
+# PokéRogue Offline
 
-A private Electron wrapper for the upstream PokeRogue browser game. Gameplay is local-only. The renderer cannot access HTTP, HTTPS, WebSocket, authentication, cloud-save, leaderboard, or telemetry services. Network access exists only in the Electron main process when the user explicitly chooses **Check for Updates**.
+Play [PokéRogue](https://github.com/pagefaultgames/pokerogue) as a standalone desktop app, with no internet connection required during gameplay.
 
-## Repository layout
+[Download the latest release](https://github.com/gaboopa/pokerogue-electron/releases/latest)
 
-The default development layout is:
+> [!IMPORTANT]
+> This is an unofficial community project. It is not made by, endorsed by, or affiliated with the PokéRogue developers, Nintendo, Game Freak, or The Pokémon Company.
 
-```text
-C:\dev\PokeRogue-Offline\pokerogue  # game fork and its assets/locales submodules
-C:\dev\PokeRogue-Electron           # this wrapper
-```
+## What does this version do?
 
-Set `POKEROGUE_GAME_PATH` to use another game checkout. Set `POKEROGUE_UPDATE_REPOSITORY` to the GitHub `owner/repository` that publishes wrapper releases; the default is `gaboopa/pokerogue-electron`.
+PokéRogue Offline packages the browser game as a desktop application. The complete game and its assets are installed on your computer, so you can:
 
-## Requirements
+- play without an internet connection;
+- keep saves locally on your computer;
+- use multiple save slots;
+- back up and restore saves from the application menu;
+- receive updated events, Pokémon data, and Egg Gacha rotations through new app releases;
+- check for app updates manually without connecting gameplay to PokéRogue's servers.
 
-- Node.js 24 or later
-- The game repository's pinned pnpm version and installed dependencies
-- Windows x64 for Windows packaging
-- Apple Silicon macOS for unsigned ARM64 DMG packaging
+There are no online accounts, cloud saves, leaderboards, telemetry, or connections to the official PokéRogue game API.
 
-Install wrapper dependencies with `npm install`. The wrapper never runs an online game backend.
+## Install on Windows
 
-## Commands
+1. Open the [latest release](https://github.com/gaboopa/pokerogue-electron/releases/latest).
+2. Download the file ending in `windows-x64.exe`.
+3. Open the downloaded installer.
+4. Follow the installation prompts, then launch **PokéRogue Offline**.
 
-- `npm run dev` — build the game in Vite app mode and launch Electron.
-- `npm run build:game` — stage the renderer, licenses, and exact source revisions.
-- `npm run run:packaged` — launch the staged renderer.
-- `npm run test` — run protocol, updater, and save-backup tests.
-- `npm run package:win` — create an unsigned Windows x64 NSIS installer.
-- `npm run package:mac` — create an unsigned Apple Silicon DMG.
-- `npm run sync:upstream` — create safety branches, merge `upstream/beta`, update submodules, report watched changes, and validate the result.
-- `npm run release:manifest -- <artifact> <download-url> <windows|macos> <x64|arm64>` — generate `release/release-manifest.json`.
+Windows may warn that the publisher is unknown because releases are not code-signed. If you downloaded the installer from this repository's Releases page, choose **More info**, review the filename, and then choose **Run anyway**.
 
-## Upstream synchronization
+### Windows requirements
 
-`sync:upstream` refuses to run unless both repositories are clean. It creates `backup/pre-upstream-*` and `updates/upstream-*` branches before merging. It never resets, rebases, pushes, tags, publishes, or merges the update branch into the release branch. On a conflict, resolve it on the update branch and run:
+- 64-bit Windows 10 or Windows 11
+- About 1.5 GB of free disk space during installation
+
+## Install on macOS
+
+A public macOS build is not available yet. The planned target is Apple Silicon (`arm64`) for M-series Macs. This section will be updated when the first macOS release is tested and published.
+
+## Saves and backups
+
+Your saves are stored separately from the installed application. Installing a newer version or reinstalling the app normally keeps your progress.
+
+Use the **PokéRogue Offline** application menu to:
+
+- **Back Up Saves** — create a timestamped local backup;
+- **Restore Backup** — restore a backup after it passes an integrity check;
+- **Open Save Folder** — open the folder containing saves and backups.
+
+The app also retains PokéRogue's save export and import features. Back up important progress before changing computers or removing application data.
+
+## Updating
+
+The app never checks silently. Select **PokéRogue Offline → Check for Updates** when you want to check.
+
+When an update is available, the app:
+
+1. downloads the installer from this repository's GitHub Releases;
+2. verifies its expected size and SHA-256 checksum;
+3. backs up your saves;
+4. asks before opening the installer.
+
+Gameplay remains available if you are offline or GitHub cannot be reached.
+
+## Troubleshooting
+
+### Windows says the app is from an unknown publisher
+
+The installer is currently unsigned. Confirm that it came from the [official Releases page for this repository](https://github.com/gaboopa/pokerogue-electron/releases), then use **More info → Run anyway** if you want to continue.
+
+### My antivirus flags the installer
+
+Unsigned Electron installers can trigger reputation-based warnings. Do not disable your antivirus globally. Confirm the download source and compare the file's SHA-256 checksum with `release-manifest.json` attached to the same release.
+
+In PowerShell, calculate the checksum with:
 
 ```powershell
-Set-Location C:\dev\PokeRogue-Offline\pokerogue
-.\node_modules\.bin\tsc.cmd --noEmit
-.\node_modules\.bin\vitest.cmd run --silent=passed-only
-
-Set-Location C:\dev\PokeRogue-Electron
-npm test
-npm run build:game
+Get-FileHash .\PokeRogue-Offline-*-windows-x64.exe -Algorithm SHA256
 ```
 
-Review `staging/upstream-reports` and smoke-test events, egg rotation, saves, audio, input, and offline behavior before accepting the update branch.
+### Will reinstalling erase my saves?
 
-## Release updates
+Normally, no. Saves are kept in your user application-data directory, outside the installation folder. They can still be lost if that data directory is manually deleted or removed by a cleanup program, so keeping backups is recommended.
 
-Upload the platform installer and `release-manifest.json` to the same GitHub release. The manifest binds the installer to its SHA-256 checksum, byte size, platform, architecture, and exact game/assets/locales revisions. The app validates all of these values and every redirect host before opening a downloaded installer.
+### Why is an event or Egg Gacha rotation different from the online game?
 
-Updates are never checked silently. Windows opens the verified NSIS installer after confirmation. macOS opens the verified DMG; because private builds are unsigned, the user must replace the app and may need to approve it in system security settings. Saves remain in the stable per-user Electron data directory and are backed up before update handoff.
+Events and rotations are part of each packaged release. Check for a newer app version. A new upstream change will not appear until it has been reviewed, rebuilt, tested, and published here.
 
-## Save safety
+### The update check failed
 
-The application menu can back up saves, restore a validated backup, and open the save directory. Backups include only Chromium local storage used by the game, carry a tree checksum, and are restored transactionally with rollback. The NSIS uninstaller is configured not to delete application data.
+You can keep playing. Check your connection and try again later, or download the newest installer directly from the Releases page.
 
-Do not change the application ID (`com.gaboopa.pokerogueoffline`), product name, or `app://game` origin after releasing builds without adding an explicit storage migration.
+## Privacy and security
 
-## Security invariants
+- Gameplay content loads only from the files installed with the app.
+- The game window cannot access websites, WebSockets, official game APIs, popups, or external navigation.
+- Update access is isolated to the desktop application's main process and restricted to GitHub release hosts.
+- Updates are initiated by the user and verified before they are opened.
 
-- Renderer sandbox enabled; Node integration disabled; context isolation enabled.
-- All game content loads from the privileged `app://game` origin.
-- Renderer HTTP(S), WebSockets, popups, navigation, and permissions are denied.
-- Update URLs are HTTPS-only and restricted to explicit GitHub hosts.
-- No arbitrary filesystem, shell, process, network, or command API is exposed to game code.
-- The packaged service worker is removed during staging.
+The source code for the wrapper and its update verification is available in this repository for review.
 
-## Manual acceptance checks
+## Developers and contributors
 
-Before each private release, test offline startup, new and existing saves, multiple save slots, backup/restore, import/export, events, legendary egg rotation, fonts, audio, localization, keyboard/controller input, resize/fullscreen, suspend/resume, relaunch, and install-over-install persistence on the target operating system.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for local setup, builds, upstream synchronization, packaging, release manifests, and security requirements.
+
+Issues and contributions are welcome. When reporting a problem, include your operating system, app version, and the steps needed to reproduce it. Never attach private save files unless you have reviewed their contents and intend to share them.
+
+## Credits and licensing
+
+PokéRogue is developed by [Pagefault Games and its contributors](https://github.com/pagefaultgames/pokerogue). This wrapper exists to make the upstream game available as a local desktop application and is not a replacement for or official distribution from that team.
+
+Packaged releases include the upstream license, credits, REUSE metadata, asset notices, localization notices, and exact source revisions used for the build. Some upstream assets may have no explicit licensing information. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before redistributing a build.
