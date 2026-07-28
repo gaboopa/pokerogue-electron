@@ -31,7 +31,10 @@ export function registerGameProtocol(protocol, gameRoot) {
     return new Response(body, {
       headers: {
         "content-type": MIME.get(extname(file).toLowerCase()) ?? "application/octet-stream",
-        "content-security-policy": "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none';",
+        // Phaser loads packaged JSON, images, and audio through fetch/XHR, so
+        // same-origin app:// requests must be allowed here. Renderer HTTP(S)
+        // and WebSocket traffic is still denied by the session network policy.
+        "content-security-policy": "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'self'; frame-src 'none'; object-src 'none';",
         "x-content-type-options": "nosniff",
       },
     });
