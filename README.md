@@ -27,6 +27,8 @@ There are no online accounts, cloud saves, leaderboards, telemetry, or connectio
 3. Open the downloaded installer.
 4. Follow the installation prompts, then launch **PokéRogue Offline**.
 
+If PokéRogue Offline is already installed, the installer detects the existing registered installation and replaces it instead of creating another installed copy. Your saves remain in the separate user-data folder.
+
 Windows may warn that the publisher is unknown because releases are not code-signed. If you downloaded the installer from this repository's Releases page, choose **More info**, review the filename, and then choose **Run anyway**.
 
 ### Windows requirements
@@ -82,6 +84,10 @@ Get-FileHash .\PokeRogue-Offline-*-windows-x64.exe -Algorithm SHA256
 ### Will reinstalling erase my saves?
 
 Normally, no. Saves are kept in your user application-data directory, outside the installation folder. They can still be lost if that data directory is manually deleted or removed by a cleanup program, so keeping backups is recommended.
+
+### Why is an older installer still in my Downloads folder?
+
+Updating replaces the installed application, but it does not delete files you downloaded. You can safely delete older `PokeRogue-Offline-*-windows-x64.exe` files yourself after the newer version is installed and working.
 
 ### Why is an event or Egg Gacha rotation different from the online game?
 

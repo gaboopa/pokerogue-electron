@@ -73,6 +73,8 @@ Each build records exact game, asset, and locale revisions in `staging/revisions
 
 Windows releases are unsigned x64 NSIS installers. macOS releases are configured as unsigned Apple Silicon DMGs and must be built and tested on Apple Silicon macOS.
 
+Windows uses the permanent `appId` to derive its upgrade identity. The NSIS installer is per-user, does not allow selecting alternate install directories, and uses a version-independent Add/Remove Programs name. These settings ensure a newer release replaces the registered installation instead of creating side-by-side copies. Do not change the `appId` or installer scope after release without an explicit migration.
+
 ## Release manifests
 
 Upload the installer and `release-manifest.json` to the same GitHub release. The manifest binds each artifact to:

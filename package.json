@@ -61,8 +61,10 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "allowToChangeInstallationDirectory": false,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "uninstallDisplayName": "PokeRogue Offline"
     },
     "mac": {
       "target": [
