@@ -1,11 +1,11 @@
 {
   "name": "pokerogue-offline-electron",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "author": "gaboopa",
   "type": "module",
   "main": "src/main.mjs",
-  "description": "Private offline Electron wrapper for PokeRogue",
+  "description": "Offline Electron wrapper for PokeRogue",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build:game": "node scripts/build-game.mjs",
