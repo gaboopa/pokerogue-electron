@@ -42,6 +42,14 @@ test("Windows icon includes the complete desktop icon size set", async () => {
     "256x256@32",
   ]);
 });
+test("Windows installer uses the supplied artwork on welcome and finish pages", async () => {
+  const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(packageJson.build.nsis.installerSidebar, "build/installerSidebar.bmp");
+  const sidebar = await readFile(new URL("../build/installerSidebar.bmp", import.meta.url));
+  assert.equal(sidebar.toString("ascii", 0, 2), "BM");
+  assert.equal(sidebar.readInt32LE(18), 164);
+  assert.equal(sidebar.readInt32LE(22), 314);
+});
 test("Windows installer welcome explains the current offline release", async () => {
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
   assert.match(installer, /MUI_WELCOMEPAGE_TITLE "Ready to install PokeRogue Offline\?"/);

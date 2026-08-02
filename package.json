@@ -70,6 +70,7 @@
       "include": "build/installer.nsh",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
+      "installerSidebar": "build/installerSidebar.bmp",
       "allowToChangeInstallationDirectory": false,
       "perMachine": false,
       "deleteAppDataOnUninstall": false,
