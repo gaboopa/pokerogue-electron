@@ -100,7 +100,7 @@ jobs:
 
       - name: Build arm64 DMG
         working-directory: PokeRogue-Electron
-        run: npm run package:mac
+        run: npm run package:mac -- --publish never
 
       - name: Verify mounted DMG
         working-directory: PokeRogue-Electron

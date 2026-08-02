@@ -34,6 +34,8 @@ test("macOS packaging keeps the arm64 unsigned DMG contract", async () => {
   assert.equal(packageJson.build.dmg.sign, false);
   assert.equal(packageJson.build.dmg.filesystem, "HFS+");
   assert.deepEqual(packageJson.build.dmg.contents[1], { x: 410, y: 220, type: "link", path: "/Applications" });
+  const workflow = await readFile(new URL("../.github/workflows/package-macos.yml", import.meta.url), "utf8");
+  assert.match(workflow, /run: npm run package:mac -- --publish never/);
 });
 
 test("macOS icon source is validated when the supplied artwork is present", async t => {
