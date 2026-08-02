@@ -31,9 +31,13 @@ npm install
 
 - `npm run dev` — build the game in Vite app mode and launch Electron.
 - `npm run build:game` — stage the renderer, licenses, and exact source revisions.
+- `npm run stage:game` — restage an existing game `dist` without running Vite.
 - `npm run run:packaged` — launch the staged production renderer.
 - `npm test` — run protocol, updater, and save-backup tests.
-- `npm run package:win` — create an unsigned Windows x64 NSIS installer.
+- `npm run package:win` — rebuild, restage, and create the release Windows x64 NSIS installer.
+- `npm run package:win:smoke` — compile the real NSIS UI without game resources under `release/smoke`; never distribute this artifact.
+- `npm run package:win:staged` — reuse validated `staging/` and the fingerprinted Windows cache to create a fast ZIP-based development installer under `release/dev`; never distribute this artifact.
+- `npm run package:win:benchmark` — compare current 7-Zip, hybrid precompressed-asset 7-Zip, and ZIP/store packaging from one cached payload under `release/benchmark`.
 - `npm run package:mac` — create an unsigned Apple Silicon DMG.
 - `npm run sync:upstream` — perform guarded synchronization with `upstream/beta`.
 - `npm run release:manifest -- <artifact> <download-url> <windows|macos> <x64|arm64>` — generate checksummed release metadata.
@@ -67,11 +71,16 @@ Smoke-test events, legendary Egg Gacha rotation, existing and new saves, backup 
 
 ## Packaging
 
-The Vite app build is copied into `staging/game` and its service worker is removed. Electron loads that content through the stable `app://game` origin. Large game files are packaged as read-only external resources instead of inside `app.asar`.
+The Vite app build is copied into `staging/game`, production source maps are omitted, and its service worker is removed. Electron loads that content through the stable `app://game` origin. Large game files are packaged as read-only external resources instead of inside `app.asar`.
 
 Each build records exact game, asset, and locale revisions in `staging/revisions.json`. Applicable upstream license and attribution files are staged under `staging/licenses`.
 
 Windows releases are unsigned x64 NSIS installers. macOS releases are configured as unsigned Apple Silicon DMGs and must be built and tested on Apple Silicon macOS.
+Only `npm run package:win` produces a distributable Windows artifact. Smoke, staged, and benchmark installers include `DO-NOT-DISTRIBUTE` in their names, use isolated output directories, and are rejected by `release:manifest`. Staged packaging reports and validates the staged game, asset, and locale revisions before it runs.
+
+Complete-game Windows packaging prepares one ignored `release/cache/win-x64` application. Staged builds reuse it only when the Electron version, wrapper inputs, staged revisions, and staged-file inventory match; release builds always refresh it. The staging copy uses Robocopy with five one-second retries for transient Windows file locks.
+
+The compression benchmark writes `release/benchmark/results.json` and compares current 7-Zip, hybrid 7-Zip that bypasses already-compressed media, and ZIP/store from the same cached application. A candidate is eligible for a future release only when installer packaging is at least 30% faster, installer size grows by no more than 10%, and clean install, upgrade, cancellation, launch, shortcuts, Add/Remove Programs identity, checksum, save-preservation, and uninstall checks pass. Running the benchmark never changes production configuration automatically.
 
 Windows uses the permanent `appId` to derive its upgrade identity. The NSIS installer is per-user, does not allow selecting alternate install directories, and uses a version-independent Add/Remove Programs name. These settings ensure a newer release replaces the registered installation instead of creating side-by-side copies. Do not change the `appId` or installer scope after release without an explicit migration.
 

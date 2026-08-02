@@ -5,19 +5,68 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_ORIGIN, PRODUCT_NAME, UPDATE_REPOSITORY } from "./constants.mjs";
 import { createBackup, restoreBackup, validateBackup } from "./backup.mjs";
+import { createCheatController } from "./cheat-main.mjs";
+import { keymapModifiedAt, loadKeymap, resetKeymap } from "./keymap-store.mjs";
 import { checkForUpdate, downloadVerified } from "./updater.mjs";
 import { registerGameProtocol } from "./protocol.mjs";
+import { createUtilitiesSubmenu } from "./utilities.mjs";
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, stream: true } }]);
 app.setName(PRODUCT_NAME);
 
 const moduleRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const windowIcon = process.platform === "win32" ? join(moduleRoot, "build", "icon.ico") : undefined;
 const gameRoot = app.isPackaged ? join(process.resourcesPath, "game") : join(moduleRoot, "staging", "game");
 let mainWindow;
+let keymapMtime = 0;
+const chartWindows = new Map();
+let cheatController;
 
 function paths() {
   const userData = app.getPath("userData");
-  return { userData, backupRoot: join(userData, "Save Backups"), downloadRoot: join(userData, "Updates") };
+  return { userData, backupRoot: join(userData, "Save Backups"), downloadRoot: join(userData, "Updates"), keymap: join(userData, "keymap.json"), cheats: join(userData, "cheats.json") };
+}
+
+async function reloadKeybindings() {
+  const mappings = await loadKeymap(paths().keymap);
+  keymapMtime = await keymapModifiedAt(paths().keymap);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("keybindings:update", mappings);
+  return mappings;
+}
+
+async function openKeybindingsFile() {
+  await reloadKeybindings();
+  const error = await shell.openPath(paths().keymap);
+  if (error) dialog.showErrorBox("Could not open keybindings", error);
+}
+
+async function resetKeybindings() {
+  await resetKeymap(paths().keymap);
+  await reloadKeybindings();
+}
+
+function openExternalUtility(url) {
+  void shell.openExternal(url).catch(error => dialog.showErrorBox("Could not open utility", error.message));
+}
+
+function toggleChartWindow(chart) {
+  const existing = chartWindows.get(chart.id);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isVisible()) { existing.hide(); mainWindow?.focus(); }
+    else { existing.show(); existing.focus(); }
+    return;
+  }
+  const chartWindow = new BrowserWindow({
+    width: chart.width, height: chart.height, show: false, autoHideMenuBar: true,
+    ...(windowIcon ? { icon: windowIcon } : {}),
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+  });
+  chartWindows.set(chart.id, chartWindow);
+  chartWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  chartWindow.webContents.on("will-navigate", event => event.preventDefault());
+  chartWindow.once("ready-to-show", () => chartWindow.show());
+  chartWindow.on("closed", () => chartWindows.delete(chart.id));
+  void chartWindow.loadFile(join(moduleRoot, "src", "assets", chart.asset));
 }
 
 async function backupSaves(showConfirmation = true) {
@@ -89,7 +138,18 @@ function createMenu() {
       { type: "separator" },
       { role: process.platform === "darwin" ? "close" : "quit" },
     ] },
-    { label: "View", submenu: [{ role: "reload" }, { role: "togglefullscreen" }] },
+    { label: "View", submenu: [
+      { label: "Reload", accelerator: "CommandOrControl+R", click: () => mainWindow?.reload() },
+      { label: "Toggle Full Screen", accelerator: "F11", click: () => mainWindow?.setFullScreen(!mainWindow.isFullScreen()) },
+      { label: "Developer Tools", accelerator: "F12", click: () => mainWindow?.webContents.toggleDevTools() },
+    ] },
+    { label: "Utilities", submenu: createUtilitiesSubmenu({ openExternal: openExternalUtility, openChart: toggleChartWindow }) },
+    { label: "Keybindings", submenu: [
+      { label: "Open Keybindings File…", click: () => void openKeybindingsFile() },
+      { label: "Reload Keybindings", click: () => void reloadKeybindings() },
+      { label: "Reset to Defaults", click: () => void resetKeybindings() },
+    ] },
+    { label: "Cheats", submenu: [{ label: "Configure Cheats…", click: () => cheatController.openWindow() }] },
   ]));
 }
 
@@ -104,10 +164,20 @@ function registerIpc() {
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280, height: 800, minWidth: 800, minHeight: 600, backgroundColor: "#000000", show: false,
-    webPreferences: { preload: join(moduleRoot, "src", "preload.mjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+    ...(windowIcon ? { icon: windowIcon } : {}),
+    webPreferences: { preload: join(moduleRoot, "src", "preload-cheats.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, url) => { if (!url.startsWith(`${APP_ORIGIN}/`)) event.preventDefault(); });
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || input.control || input.meta || input.alt) return;
+    if (input.key === "F5") { event.preventDefault(); mainWindow.reload(); }
+  });
+  mainWindow.webContents.on("did-finish-load", () => void reloadKeybindings());
+  mainWindow.on("focus", async () => {
+    try { if (await keymapModifiedAt(paths().keymap) !== keymapMtime) await reloadKeybindings(); }
+    catch (error) { console.warn(`Could not refresh keybindings: ${error.message}`); }
+  });
   mainWindow.once("ready-to-show", () => mainWindow.show());
   await mainWindow.loadURL(`${APP_ORIGIN}/index.html`);
 }
@@ -115,8 +185,16 @@ async function createWindow() {
 app.whenReady().then(async () => {
   await mkdir(paths().backupRoot, { recursive: true });
   await applyPendingRestore();
+  await reloadKeybindings();
   registerGameProtocol(protocol, gameRoot);
   installNetworkPolicy();
+  cheatController = createCheatController({
+    moduleRoot, configPath: paths().cheats, icon: windowIcon,
+    getMainWindow: () => mainWindow,
+    backup: () => backupSaves(false),
+    relaunch: async () => { app.relaunch(); app.quit(); },
+  });
+  cheatController.registerIpc();
   registerIpc();
   createMenu();
   await createWindow();

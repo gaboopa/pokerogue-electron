@@ -1,13 +1,50 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 
 test("Windows packaging keeps one stable per-user upgrade identity", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(packageJson.build.appId, "com.gaboopa.pokerogueoffline");
+  assert.equal(packageJson.build.win.icon, "build/icon.ico");
+  assert.ok(packageJson.build.files.includes("build/icon.ico"));
   assert.equal(packageJson.build.nsis.oneClick, false);
+  assert.equal(packageJson.build.nsis.include, "build/installer.nsh");
+  assert.equal(packageJson.build.nsis.installerIcon, "build/icon.ico");
+  assert.equal(packageJson.build.nsis.uninstallerIcon, "build/icon.ico");
   assert.equal(packageJson.build.nsis.perMachine, false);
   assert.equal(packageJson.build.nsis.allowToChangeInstallationDirectory, false);
   assert.equal(packageJson.build.nsis.deleteAppDataOnUninstall, false);
   assert.equal(packageJson.build.nsis.uninstallDisplayName, "PokeRogue Offline");
+});
+
+test("Windows icon includes the complete desktop icon size set", async () => {
+  const iconUrl = new URL("../build/icon.ico", import.meta.url);
+  await access(iconUrl);
+  const icon = await readFile(iconUrl);
+  assert.equal(icon.readUInt16LE(0), 0);
+  assert.equal(icon.readUInt16LE(2), 1);
+  const imageCount = icon.readUInt16LE(4);
+  const sizes = [];
+  for (let index = 0; index < imageCount; index += 1) {
+    const offset = 6 + (index * 16);
+    const width = icon[offset] || 256;
+    const height = icon[offset + 1] || 256;
+    const bitsPerPixel = icon.readUInt16LE(offset + 6);
+    sizes.push(`${width}x${height}@${bitsPerPixel}`);
+  }
+  assert.deepEqual(sizes, [
+    "16x16@32",
+    "24x24@32",
+    "32x32@32",
+    "48x48@32",
+    "64x64@32",
+    "128x128@32",
+    "256x256@32",
+  ]);
+});
+test("Windows installer welcome is visible without a pre-GUI banner plugin", async () => {
+  const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
+  assert.match(installer, /MUI_WELCOMEPAGE_TEXT "Hi, it takes a bit of time, but I'm functioning fine\. I heard your double-clicking!"/);
+  assert.match(installer, /!insertmacro MUI_PAGE_WELCOME/);
+  assert.doesNotMatch(installer, /SpiderBanner::Show|MUI_CUSTOMFUNCTION_GUIINIT/);
 });
