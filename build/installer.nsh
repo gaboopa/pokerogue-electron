@@ -25,18 +25,12 @@ Var InstallerProgressTimerStarted
 !macroend
 
 !macro customWelcomePage
-  !define MUI_WELCOMEPAGE_TITLE "PokeRogue Offline Setup"
-  !define MUI_WELCOMEPAGE_TEXT "Hi, it takes a bit of time, but I'm functioning fine. I heard your double-clicking!"
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW InstallerWelcomePageShow
+  !define MUI_WELCOMEPAGE_TITLE "Ready to install PokeRogue Offline?"
+  !define MUI_WELCOMEPAGE_TEXT "Click Next to begin setting up a new offline version of PokeRogue on your PC. It only takes a few moments.$\r$\n$\r$\nPlease verify you're installing the latest version! This is version: ${VERSION}"
   !insertmacro MUI_PAGE_WELCOME
 !macroend
 
 !macro customPageAfterChangeDir
-  ; Replace the generic NSIS install-page copy with the offline-wrapper wording.
-  !ifdef MUI_INSTFILESPAGE_TEXT
-    !undef MUI_INSTFILESPAGE_TEXT
-  !endif
-  !define MUI_INSTFILESPAGE_TEXT "You are now installing an electron-based wrapper for the online game PokeRogue! This install is entirely offline gameplay."
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW InstallerProgressPageShow
   !define MUI_PAGE_CUSTOMFUNCTION_LEAVE InstallerProgressPageLeave
 !macroend
@@ -54,11 +48,6 @@ Var InstallerProgressTimerStarted
   Call InstallerShowFinishing
 !macroend
 
-Function InstallerWelcomePageShow
-  GetDlgItem $0 $HWNDPARENT 1006
-  SendMessage $0 ${WM_SETTEXT} 0 "STR:Starting PokeRogue Offline Setup"
-FunctionEnd
-
 Function InstallerProgressPageShow
   ; MUI creates the install page as a #32770 dialog. Resolve that dialog first
   ; so the progress control remains valid across NSIS/electron-builder versions.
@@ -72,10 +61,14 @@ Function InstallerProgressPageShow
     GetDlgItem $InstallerProgressBar $0 1004
   ${EndIf}
 
-  ; Keep the requested explanation in the standard intro control. Live status
-  ; is rendered in a separate control so it cannot replace this sentence.
-  GetDlgItem $1 $0 1006
+  ; Keep the requested explanation in the wizard header.
+  GetDlgItem $1 $HWNDPARENT 1037
+  SendMessage $1 ${WM_SETTEXT} 0 "STR:Installing"
+  GetDlgItem $1 $HWNDPARENT 1038
   SendMessage $1 ${WM_SETTEXT} 0 "STR:You are now installing an electron-based wrapper for the online game PokeRogue! This install is entirely offline gameplay."
+  ; Leave the native install-page text control untouched: NSIS updates it
+  ; with the file currently being extracted.
+  GetDlgItem $1 $0 1006
   SendMessage $1 ${WM_GETFONT} 0 0 $2
 
   ; The native progress bar stays in its standard location. These compact
