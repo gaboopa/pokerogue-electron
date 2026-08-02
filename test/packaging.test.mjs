@@ -12,7 +12,7 @@ test("Windows packaging keeps one stable per-user upgrade identity", async () =>
   assert.equal(packageJson.build.nsis.installerIcon, "build/icon.ico");
   assert.equal(packageJson.build.nsis.uninstallerIcon, "build/icon.ico");
   assert.equal(packageJson.build.nsis.perMachine, false);
-  assert.equal(packageJson.build.nsis.allowToChangeInstallationDirectory, false);
+  assert.equal(packageJson.build.nsis.allowToChangeInstallationDirectory, true);
   assert.equal(packageJson.build.nsis.deleteAppDataOnUninstall, false);
   assert.equal(packageJson.build.nsis.uninstallDisplayName, "PokeRogue Offline");
 });
