@@ -2,6 +2,7 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { gameRoot, git, run, wrapperRoot } from "./lib.mjs";
+import { shouldStageGamePath } from "./staging-policy.mjs";
 
 if (!existsSync(join(gameRoot, "package.json"))) throw new Error(`Game repository not found: ${gameRoot}`);
 for (const path of ["assets/service-worker.js", "assets/logo512.png", "locales/en"]) if (!existsSync(join(gameRoot, path))) throw new Error(`Required game content is missing: ${path}`);
@@ -15,7 +16,7 @@ if (!existsSync(join(gameRoot, "dist", "index.html"))) throw new Error("The game
 const staging = join(wrapperRoot, "staging");
 await rm(staging, { recursive: true, force: true });
 await mkdir(join(staging, "game"), { recursive: true });
-await cp(join(gameRoot, "dist"), join(staging, "game"), { recursive: true });
+await cp(join(gameRoot, "dist"), join(staging, "game"), { recursive: true, filter: shouldStageGamePath });
 
 const indexPath = join(staging, "game", "index.html");
 let html = await readFile(indexPath, "utf8");
