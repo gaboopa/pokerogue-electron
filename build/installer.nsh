@@ -25,9 +25,8 @@ Var InstallerProgressTimerStarted
 !macroend
 
 !macro customWelcomePage
-  !define MUI_WELCOMEPAGE_TITLE "PokeRogue Offline Setup"
-  !define MUI_WELCOMEPAGE_TEXT "Hi, it takes a bit of time, but I'm functioning fine. I heard your double-clicking!"
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW InstallerWelcomePageShow
+  !define MUI_WELCOMEPAGE_TITLE "Ready to install PokeRogue Offline?"
+  !define MUI_WELCOMEPAGE_TEXT "Click Next to begin setting up a new offline version of PokeRogue on your PC. It only takes a few moments.$\r$\n$\r$\nPlease verify you're installing the latest version! This is version: ${VERSION}"
   !insertmacro MUI_PAGE_WELCOME
 !macroend
 
@@ -48,11 +47,6 @@ Var InstallerProgressTimerStarted
 !macro customInstall
   Call InstallerShowFinishing
 !macroend
-
-Function InstallerWelcomePageShow
-  GetDlgItem $0 $HWNDPARENT 1006
-  SendMessage $0 ${WM_SETTEXT} 0 "STR:Starting PokeRogue Offline Setup"
-FunctionEnd
 
 Function InstallerProgressPageShow
   ; MUI creates the install page as a #32770 dialog. Resolve that dialog first

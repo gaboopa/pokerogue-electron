@@ -42,11 +42,14 @@ test("Windows icon includes the complete desktop icon size set", async () => {
     "256x256@32",
   ]);
 });
-test("Windows installer welcome is visible without a pre-GUI banner plugin", async () => {
+test("Windows installer welcome explains the current offline release", async () => {
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
-  assert.match(installer, /MUI_WELCOMEPAGE_TEXT "Hi, it takes a bit of time, but I'm functioning fine\. I heard your double-clicking!"/);
+  assert.match(installer, /MUI_WELCOMEPAGE_TITLE "Ready to install PokeRogue Offline\?"/);
+  assert.ok(installer.includes(
+    'MUI_WELCOMEPAGE_TEXT "Click Next to begin setting up a new offline version of PokeRogue on your PC. It only takes a few moments.$\\r$\\n$\\r$\\nPlease verify you\'re installing the latest version! This is version: ${VERSION}"',
+  ));
   assert.match(installer, /!insertmacro MUI_PAGE_WELCOME/);
-  assert.doesNotMatch(installer, /SpiderBanner::Show|MUI_CUSTOMFUNCTION_GUIINIT/);
+  assert.doesNotMatch(installer, /Hi, it takes a bit of time|Starting PokeRogue Offline Setup|InstallerWelcomePageShow|SpiderBanner::Show|MUI_CUSTOMFUNCTION_GUIINIT/);
 });
 test("Windows installer progress page uses the header and native current-file text", async () => {
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
