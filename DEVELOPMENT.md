@@ -40,7 +40,7 @@ npm install
 - `npm run package:win:benchmark` — compare current 7-Zip, hybrid precompressed-asset 7-Zip, and ZIP/store packaging from one cached payload under `release/benchmark`.
 - `npm run package:mac` — create an unsigned Apple Silicon DMG.
 - `npm run sync:upstream` — perform guarded synchronization with `upstream/beta`.
-- `npm run release:manifest -- <artifact> <download-url> <windows|macos> <x64|arm64>` — generate checksummed release metadata.
+- `npm run release:manifest -- [--base <manifest>] [--replace] <artifact> <download-url> <windows|macos> <x64|arm64>` — create or augment checksummed release metadata.
 
 ## Upstream synchronization
 
@@ -76,7 +76,13 @@ The Vite app build is copied into `staging/game`, production source maps are omi
 Each build records exact game, asset, and locale revisions in `staging/revisions.json`. Applicable upstream license and attribution files are staged under `staging/licenses`.
 
 Windows releases are unsigned x64 NSIS installers. macOS releases are configured as unsigned Apple Silicon DMGs and must be built and tested on Apple Silicon macOS.
-Only `npm run package:win` produces a distributable Windows artifact. Smoke, staged, and benchmark installers include `DO-NOT-DISTRIBUTE` in their names, use isolated output directories, and are rejected by `release:manifest`. Staged packaging reports and validates the staged game, asset, and locale revisions before it runs.
+Only `npm run package:win` and the approved macOS workflow produce distributable artifacts. Smoke, staged, and benchmark installers include `DO-NOT-DISTRIBUTE` in their names, use isolated output directories, and are rejected by the shared release-artifact guard. Staged packaging reports and validates the staged game, asset, and locale revisions before it runs.
+
+The macOS release workflow is `.github/workflows/package-macos.yml`. It is started manually with an existing release tag, checks out the exact game revision recorded in that release manifest, builds on `macos-15`, runs the wrapper and mounted-DMG checks, then uploads short-retention Actions artifacts for hands-on QA. Configure a required reviewer for the `macos-release` GitHub Environment before enabling publication.
+
+After testing the artifact on an Apple Silicon Mac, approve the environment job. The workflow uploads the DMG first and replaces `release-manifest.json` last. It refuses to replace an existing `macos/arm64` artifact unless `replace_existing` is enabled.
+
+The manual Mac QA checklist covers Gatekeeper approval through **System Settings -> Privacy & Security -> Open Anyway**, launch and relaunch, offline gameplay, audio, keyboard/controller input, saves, backup and restore, keybindings, cheats, utilities, resizing, fullscreen, suspend/resume, closing and reopening from the Dock, Cmd-Q, and install-over-install save preservation.
 
 Complete-game Windows packaging prepares one ignored `release/cache/win-x64` application. Staged builds reuse it only when the Electron version, wrapper inputs, staged revisions, and staged-file inventory match; release builds always refresh it. The staging copy uses Robocopy with five one-second retries for transient Windows file locks.
 
@@ -105,6 +111,14 @@ npm run release:manifest -- `
 ```
 
 Never alter an installer after generating its manifest. Regenerate the manifest whenever the artifact changes.
+To augment an existing Windows release after Mac QA, use the existing manifest as the base:
+
+```sh
+npm run release:manifest -- --base release-manifest.json \
+  release/PokeRogue-Offline-0.1.0-macos-arm64.dmg \
+  https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.0/PokeRogue-Offline-0.1.0-macos-arm64.dmg \
+  macos arm64
+```
 
 ## Save compatibility
 

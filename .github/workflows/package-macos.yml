@@ -1,0 +1,204 @@
+name: Package macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to augment (for example v0.1.3)
+        required: true
+        type: string
+      replace_existing:
+        description: Replace an existing macOS arm64 asset and manifest entry
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: macos-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and verify DMG
+    runs-on: macos-15
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ inputs.tag }}
+      REPLACE_EXISTING: ${{ inputs.replace_existing }}
+      WRAPPER_DIR: ${{ github.workspace }}/PokeRogue-Electron
+    steps:
+      - name: Check out wrapper tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          path: PokeRogue-Electron
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: PokeRogue-Electron/package-lock.json
+
+      - name: Download existing release manifest
+        working-directory: PokeRogue-Electron
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pokerogue-release"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern release-manifest.json --dir "$RUNNER_TEMP/pokerogue-release"
+      - name: Validate release and select game revision
+        id: release
+        working-directory: PokeRogue-Electron
+        env:
+          MANIFEST: ${{ runner.temp }}/pokerogue-release/release-manifest.json
+        run: |
+          node --input-type=module - <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const tag = process.env.TAG;
+          const replace = process.env.REPLACE_EXISTING === "true";
+          const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+          const manifest = JSON.parse(readFileSync(process.env.MANIFEST, "utf8"));
+          if (tag !== `v${packageJson.version}`) throw new Error(`Tag ${tag} does not match package version ${packageJson.version}`);
+          if (manifest.version !== packageJson.version || manifest.schemaVersion !== 1) throw new Error("Release manifest does not match the wrapper version or schema");
+          const mac = manifest.artifacts?.find(item => item.platform === "macos" && item.arch === "arm64");
+          if (mac && !replace) throw new Error("Release already contains macos/arm64; rerun with replace_existing enabled to replace it");
+          for (const key of ["game", "assets", "locales"]) if (typeof manifest.sourceRevisions?.[key] !== "string" || !manifest.sourceRevisions[key]) throw new Error(`Manifest is missing source revision ${key}`);
+          appendFileSync(process.env.GITHUB_OUTPUT, `game_sha=${manifest.sourceRevisions.game}\n`);
+          NODE
+
+      - name: Check out exact game revision and submodules
+        uses: actions/checkout@v7
+        with:
+          repository: gaboopa/pokerogue
+          ref: ${{ steps.release.outputs.game_sha }}
+          path: PokeRogue-Offline/pokerogue
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install wrapper and game dependencies
+        working-directory: PokeRogue-Electron
+        run: |
+          npm ci
+          corepack enable
+          corepack install --global pnpm@10.34.5
+          pnpm --dir ../PokeRogue-Offline/pokerogue install --frozen-lockfile
+
+      - name: Run wrapper tests
+        working-directory: PokeRogue-Electron
+        run: npm test
+      - name: Require final macOS icon artwork
+        working-directory: PokeRogue-Electron
+        run: |
+          test -f build/icon.png
+          test "$(python3 -c 'from pathlib import Path; import struct; b=Path("build/icon.png").read_bytes(); print(struct.unpack(">II", b[16:24]) if b[:8] == bytes.fromhex("89504e470d0a1a0a") else (0, 0))')" = "(1024, 1024)"
+
+      - name: Build arm64 DMG
+        working-directory: PokeRogue-Electron
+        run: npm run package:mac
+
+      - name: Verify mounted DMG
+        working-directory: PokeRogue-Electron
+        run: node scripts/verify-mac-package.mjs "$(find release -maxdepth 1 -name '*-macos-arm64.dmg' -type f -print -quit)"
+
+      - name: Build combined release manifest
+        working-directory: PokeRogue-Electron
+        run: |
+          args=(--base "$MANIFEST")
+          version=$(node -p "require('./package.json').version")
+          if [[ "$REPLACE_EXISTING" == "true" ]]; then args+=(--replace); fi
+          npm run release:manifest -- "${args[@]}" \
+            "$(find release -maxdepth 1 -name '*-macos-arm64.dmg' -type f -print -quit)" \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/PokeRogue-Offline-${version}-macos-arm64.dmg" \
+            macos arm64
+        env:
+          MANIFEST: ${{ runner.temp }}/pokerogue-release/release-manifest.json
+
+      - name: Print artifact checksum
+        working-directory: PokeRogue-Electron
+        run: shasum -a 256 "$(find release -maxdepth 1 -name '*-macos-arm64.dmg' -type f -print -quit)" "release/release-manifest.json"
+
+      - name: Upload exact DMG for hands-on QA
+        uses: actions/upload-artifact@v7
+        with:
+          name: PokeRogue-Offline-${{ inputs.tag }}-macos-arm64.dmg
+          path: PokeRogue-Electron/release/PokeRogue-Offline-*.dmg
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload exact release manifest for hands-on QA
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-manifest-${{ inputs.tag }}.json
+          path: PokeRogue-Electron/release/release-manifest.json
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: Publish after Mac approval
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    environment:
+      name: macos-release
+    env:
+      TAG: ${{ inputs.tag }}
+      REPLACE_EXISTING: ${{ inputs.replace_existing }}
+    steps:
+      - name: Download exact tested DMG
+        uses: actions/download-artifact@v8
+        with:
+          name: PokeRogue-Offline-${{ inputs.tag }}-macos-arm64.dmg
+          path: ${{ runner.temp }}/pokerogue-publish
+
+      - name: Download exact tested manifest
+        uses: actions/download-artifact@v8
+        with:
+          name: release-manifest-${{ inputs.tag }}.json
+          path: ${{ runner.temp }}/pokerogue-publish
+
+      - name: Verify tested artifact checksums
+        working-directory: ${{ runner.temp }}/pokerogue-publish
+        run: |
+          dmg=$(find . -maxdepth 1 -name '*.dmg' -type f -print -quit)
+          test -n "$dmg"
+          test -f release-manifest.json
+          jq -e --arg file "$(basename "$dmg")" '.artifacts[] | select(.platform == "macos" and .arch == "arm64") | .fileName == $file' release-manifest.json
+          actual_size=$(stat -c '%s' "$dmg")
+          expected_size=$(jq -r '.artifacts[] | select(.platform == "macos" and .arch == "arm64") | .size' release-manifest.json)
+          test "$actual_size" = "$expected_size"
+          actual_sha=$(sha256sum "$dmg" | cut -d' ' -f1)
+          expected_sha=$(jq -r '.artifacts[] | select(.platform == "macos" and .arch == "arm64") | .sha256')
+          test "$actual_sha" = "$expected_sha"
+
+      - name: Upload DMG first
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: ${{ runner.temp }}/pokerogue-publish
+        run: |
+          dmg=$(find . -maxdepth 1 -name '*.dmg' -type f -print -quit)
+          args=()
+          if [[ "$REPLACE_EXISTING" == "true" ]]; then args+=(--clobber); fi
+          gh release upload "$TAG" "$dmg" --repo "$GITHUB_REPOSITORY" "${args[@]}"
+
+      - name: Replace combined release manifest last
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: ${{ runner.temp }}/pokerogue-publish
+        run: gh release upload "$TAG" release-manifest.json --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Download published assets and verify manifest binding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pokerogue-published"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'PokeRogue-Offline-*-macos-arm64.dmg' --pattern release-manifest.json --dir "$RUNNER_TEMP/pokerogue-published"
+          dmg=$(find "$RUNNER_TEMP/pokerogue-published" -name '*.dmg' -type f -print -quit)
+          jq -e --arg file "$(basename "$dmg")" --argjson size "$(stat -c '%s' "$dmg")" --arg sha "$(sha256sum "$dmg" | cut -d' ' -f1)" '.artifacts[] | select(.platform == "macos" and .arch == "arm64") | .fileName == $file and .size == $size and .sha256 == $sha' "$RUNNER_TEMP/pokerogue-published/release-manifest.json"
