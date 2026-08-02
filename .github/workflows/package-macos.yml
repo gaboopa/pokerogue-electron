@@ -173,9 +173,10 @@ jobs:
           jq -e --arg file "$(basename "$dmg")" '.artifacts[] | select(.platform == "macos" and .arch == "arm64") | .fileName == $file' release-manifest.json
           actual_size=$(stat -c '%s' "$dmg")
           expected_size=$(jq -r '.artifacts[] | select(.platform == "macos" and .arch == "arm64") | .size' release-manifest.json)
-          test "$actual_size" = "$expected_size"
           actual_sha=$(sha256sum "$dmg" | cut -d' ' -f1)
           expected_sha=$(jq -r '.artifacts[] | select(.platform == "macos" and .arch == "arm64") | .sha256')
+          printf 'DMG checksum verification: file=%s actual_size=%s expected_size=%s actual_sha=%s expected_sha=%s\n' "$dmg" "$actual_size" "$expected_size" "$actual_sha" "$expected_sha"
+          test "$actual_size" = "$expected_size"
           test "$actual_sha" = "$expected_sha"
 
       - name: Upload DMG first
