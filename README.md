@@ -38,7 +38,18 @@ Windows may warn that the publisher is unknown because releases are not code-sig
 
 ## Install on macOS
 
-A public macOS build is not available yet. The planned target is Apple Silicon (`arm64`) for M-series Macs. This section will be updated when the first macOS release is tested and published.
+1. Open the [latest release](https://github.com/gaboopa/pokerogue-electron/releases/latest) on an Apple Silicon Mac (M1 or newer).
+2. Download the file ending in `macos-arm64.dmg`.
+3. Open the DMG and drag **PokeRogue Offline** into **Applications**.
+4. Open the app from Applications.
+
+This first macOS distribution is unsigned and unnotarized. If macOS blocks the first launch, try opening the app once, then open **System Settings -> Privacy & Security**, scroll to Security, choose **Open Anyway**, and confirm. Apple makes this button available for about an hour after the blocked launch. See [Apple's guidance](https://support.apple.com/en-ie/102445).
+
+### macOS requirements
+
+- Apple Silicon Mac (M1 or newer)
+- The macOS version reported by the downloaded app's `LSMinimumSystemVersion`
+- About 1.5 GB of free disk space during installation
 
 ## Saves and backups
 
@@ -70,6 +81,10 @@ Gameplay remains available if you are offline or GitHub cannot be reached.
 ### Windows says the app is from an unknown publisher
 
 The installer is currently unsigned. Confirm that it came from the [official Releases page for this repository](https://github.com/gaboopa/pokerogue-electron/releases), then use **More info → Run anyway** if you want to continue.
+
+### macOS says the app cannot be opened
+
+Confirm that the DMG came from this repository's official Releases page. Try opening the app once, then use **System Settings -> Privacy & Security -> Open Anyway**. Do not remove quarantine attributes with Terminal commands.
 
 ### My antivirus flags the installer
 

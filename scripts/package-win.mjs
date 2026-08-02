@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { access, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Arch, build, Platform } from "electron-builder";
 import { wrapperRoot } from "./lib.mjs";
@@ -9,9 +9,10 @@ import { wrapperRoot } from "./lib.mjs";
 export const WINDOWS_PACKAGE_MODES = Object.freeze(["release", "smoke", "staged"]);
 export const WINDOWS_CACHE_SCHEMA_VERSION = 1;
 export const WINDOWS_CACHE_RELATIVE_PATH = "release/cache/win-x64";
-const NON_RELEASE_MARKER = "DO-NOT-DISTRIBUTE";
+import { assertDistributableArtifactName, NON_RELEASE_MARKER } from "./release-artifact.mjs";
 const CACHE_MARKER_NAME = "cache.json";
 const PRODUCT_EXECUTABLE = "PokeRogue Offline.exe";
+export { assertDistributableArtifactName };
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -108,13 +109,6 @@ export function createWindowsBuildConfig(baseBuild, mode) {
   return config;
 }
 
-export function assertDistributableArtifactName(artifactPath) {
-  const fileName = basename(artifactPath);
-  if (/DO-NOT-DISTRIBUTE|(?:^|[-_.])(smoke|dev|benchmark)(?:[-_.]|$)/i.test(fileName)) {
-    throw new Error(`Refusing to publish non-release artifact: ${fileName}`);
-  }
-  return fileName;
-}
 
 export async function validateStaging(root = wrapperRoot) {
   const required = [

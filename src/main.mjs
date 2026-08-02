@@ -10,6 +10,7 @@ import { keymapModifiedAt, loadKeymap, resetKeymap } from "./keymap-store.mjs";
 import { checkForUpdate, downloadVerified } from "./updater.mjs";
 import { registerGameProtocol } from "./protocol.mjs";
 import { createUtilitiesSubmenu } from "./utilities.mjs";
+import { createMenuTemplate } from "./menu.mjs";
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, stream: true } }]);
 app.setName(PRODUCT_NAME);
@@ -110,7 +111,7 @@ async function performUpdateCheck() {
     if (answer.response !== 0) return { available: true, downloaded: false };
     const installer = await downloadVerified(result.artifact, paths().downloadRoot);
     await backupSaves(false);
-    const install = await dialog.showMessageBox(mainWindow, { type: "info", title: "Update downloaded", message: process.platform === "darwin" ? "Open the DMG, replace the existing application, and approve the unsigned build if prompted." : "Close the game and run the installer to update.", detail: installer, buttons: ["Open Update", "Later"], defaultId: 0, cancelId: 1 });
+    const install = await dialog.showMessageBox(mainWindow, { type: "info", title: "Update downloaded", message: process.platform === "darwin" ? "Open the DMG, drag PokeRogue Offline into Applications, and replace the existing copy. macOS may ask you to approve this unsigned build in System Settings." : "Close the game and run the installer to update.", detail: installer, buttons: ["Open Update", "Later"], defaultId: 0, cancelId: 1 });
     if (install.response === 0) await shell.openPath(installer);
     return { available: true, downloaded: true };
   } catch (error) {
@@ -128,29 +129,28 @@ function installNetworkPolicy() {
 }
 
 function createMenu() {
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: PRODUCT_NAME, submenu: [
-      { label: "Check for Updates…", click: performUpdateCheck },
-      { type: "separator" },
-      { label: "Back Up Saves…", click: () => backupSaves(true) },
-      { label: "Restore Backup…", click: chooseAndRestore },
-      { label: "Open Save Folder", click: () => shell.openPath(paths().userData) },
-      { type: "separator" },
-      { role: process.platform === "darwin" ? "close" : "quit" },
-    ] },
-    { label: "View", submenu: [
-      { label: "Reload", accelerator: "CommandOrControl+R", click: () => mainWindow?.reload() },
-      { label: "Toggle Full Screen", accelerator: "F11", click: () => mainWindow?.setFullScreen(!mainWindow.isFullScreen()) },
-      { label: "Developer Tools", accelerator: "F12", click: () => mainWindow?.webContents.toggleDevTools() },
-    ] },
-    { label: "Utilities", submenu: createUtilitiesSubmenu({ openExternal: openExternalUtility, openChart: toggleChartWindow }) },
-    { label: "Keybindings", submenu: [
-      { label: "Open Keybindings File…", click: () => void openKeybindingsFile() },
-      { label: "Reload Keybindings", click: () => void reloadKeybindings() },
-      { label: "Reset to Defaults", click: () => void resetKeybindings() },
-    ] },
-    { label: "Cheats", submenu: [{ label: "Configure Cheats…", click: () => cheatController.openWindow() }] },
-  ]));
+  const isMac = process.platform === "darwin";
+  const keybindings = [
+    { label: "Open Keybindings File...", click: () => void openKeybindingsFile() },
+    { label: "Reload Keybindings", click: () => void reloadKeybindings() },
+    { label: "Reset to Defaults", click: () => void resetKeybindings() },
+  ];
+  const utilities = createUtilitiesSubmenu({ openExternal: openExternalUtility, openChart: toggleChartWindow });
+  const cheats = [{ label: "Configure Cheats...", click: () => cheatController.openWindow() }];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(createMenuTemplate({
+    isMac,
+    productName: PRODUCT_NAME,
+    onCheckForUpdates: performUpdateCheck,
+    onBackup: () => backupSaves(true),
+    onRestore: chooseAndRestore,
+    onOpenSaveFolder: () => shell.openPath(paths().userData),
+    onReload: () => mainWindow?.reload(),
+    onToggleFullscreen: () => mainWindow?.setFullScreen(!mainWindow.isFullScreen()),
+    onDeveloperTools: () => mainWindow?.webContents.toggleDevTools(),
+    utilities,
+    keybindings,
+    cheats,
+  })));
 }
 
 function registerIpc() {

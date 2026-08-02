@@ -18,7 +18,7 @@
     "package:win:staged": "node scripts/package-win.mjs staged",
     "package:win:benchmark": "node scripts/benchmark-win-packaging.mjs",
     "package:mac": "npm run build:game && electron-builder --mac dmg --arm64",
-    "release:manifest": "node scripts/release-manifest.mjs"
+    "release:manifest": "node scripts/release-manifest-v2.mjs"
   },
   "devDependencies": {
     "electron": "^42.0.0",
@@ -86,7 +86,18 @@
       ],
       "artifactName": "PokeRogue-Offline-${version}-macos-arm64.${ext}",
       "identity": null,
+      "icon": "build/icon.png",
+      "hardenedRuntime": false,
+      "notarize": false,
       "category": "public.app-category.games"
+    },
+    "dmg": {
+      "sign": false,
+      "filesystem": "HFS+",
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
     }
   },
   "allowScripts": {
