@@ -48,14 +48,16 @@ test("Windows installer welcome is visible without a pre-GUI banner plugin", asy
   assert.match(installer, /!insertmacro MUI_PAGE_WELCOME/);
   assert.doesNotMatch(installer, /SpiderBanner::Show|MUI_CUSTOMFUNCTION_GUIINIT/);
 });
-
-test("Windows installer progress page keeps the explanation and live state readable", async () => {
+test("Windows installer progress page uses the header and native current-file text", async () => {
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
   const installText = "You are now installing an electron-based wrapper for the online game PokeRogue! This install is entirely offline gameplay.";
-  const escapedText = installText.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");
-  assert.match(installer, new RegExp(`MUI_INSTFILESPAGE_TEXT "${escapedText}"`));
+  const escapedText = installText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  assert.match(installer, /GetDlgItem \$1 \$HWNDPARENT 1037/);
+  assert.match(installer, /GetDlgItem \$1 \$HWNDPARENT 1038/);
   assert.match(installer, new RegExp(`WM_SETTEXT} 0 "STR:${escapedText}"`));
+  assert.doesNotMatch(installer, /MUI_INSTFILESPAGE_TEXT/);
   assert.match(installer, /FindWindow \$0 "#32770"/);
+  assert.match(installer, /GetDlgItem \$1 \$0 1006/);
   assert.match(installer, /GetDlgItem \$InstallerProgressBar \$0 1004/);
   assert.match(installer, /PBM_GETPOS/);
   assert.match(installer, /\[Now\] Installing/);

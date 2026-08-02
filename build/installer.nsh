@@ -32,11 +32,6 @@ Var InstallerProgressTimerStarted
 !macroend
 
 !macro customPageAfterChangeDir
-  ; Replace the generic NSIS install-page copy with the offline-wrapper wording.
-  !ifdef MUI_INSTFILESPAGE_TEXT
-    !undef MUI_INSTFILESPAGE_TEXT
-  !endif
-  !define MUI_INSTFILESPAGE_TEXT "You are now installing an electron-based wrapper for the online game PokeRogue! This install is entirely offline gameplay."
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW InstallerProgressPageShow
   !define MUI_PAGE_CUSTOMFUNCTION_LEAVE InstallerProgressPageLeave
 !macroend
@@ -72,10 +67,14 @@ Function InstallerProgressPageShow
     GetDlgItem $InstallerProgressBar $0 1004
   ${EndIf}
 
-  ; Keep the requested explanation in the standard intro control. Live status
-  ; is rendered in a separate control so it cannot replace this sentence.
-  GetDlgItem $1 $0 1006
+  ; Keep the requested explanation in the wizard header.
+  GetDlgItem $1 $HWNDPARENT 1037
+  SendMessage $1 ${WM_SETTEXT} 0 "STR:Installing"
+  GetDlgItem $1 $HWNDPARENT 1038
   SendMessage $1 ${WM_SETTEXT} 0 "STR:You are now installing an electron-based wrapper for the online game PokeRogue! This install is entirely offline gameplay."
+  ; Leave the native install-page text control untouched: NSIS updates it
+  ; with the file currently being extracted.
+  GetDlgItem $1 $0 1006
   SendMessage $1 ${WM_GETFONT} 0 0 $2
 
   ; The native progress bar stays in its standard location. These compact
