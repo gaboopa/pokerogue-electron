@@ -32,6 +32,11 @@ Var InstallerProgressTimerStarted
 !macroend
 
 !macro customPageAfterChangeDir
+  ; Replace the generic NSIS install-page copy with the offline-wrapper wording.
+  !ifdef MUI_INSTFILESPAGE_TEXT
+    !undef MUI_INSTFILESPAGE_TEXT
+  !endif
+  !define MUI_INSTFILESPAGE_TEXT "You are now installing an electron-based wrapper for the online game PokeRogue! This install is entirely offline gameplay."
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW InstallerProgressPageShow
   !define MUI_PAGE_CUSTOMFUNCTION_LEAVE InstallerProgressPageLeave
 !macroend
@@ -55,19 +60,39 @@ Function InstallerWelcomePageShow
 FunctionEnd
 
 Function InstallerProgressPageShow
-  GetDlgItem $InstallerProgressBar $HWNDPARENT 1004
-  GetDlgItem $InstallerStatusLabel $HWNDPARENT 1006
-  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "Starting$\r$\nPreparing$\r$\nInstalling$\r$\nFinishing", i ${WS_CHILD}|${WS_VISIBLE}, i 18, i 78, i 112, i 92, p $HWNDPARENT, p 0, p 0, p 0) p.r0'
-  StrCpy $InstallerStepsLabel $0
-  SendMessage $InstallerStatusLabel ${WM_GETFONT} 0 0 $2
+  ; MUI creates the install page as a #32770 dialog. Resolve that dialog first
+  ; so the progress control remains valid across NSIS/electron-builder versions.
+  StrCpy $0 $HWNDPARENT
+  GetDlgItem $InstallerProgressBar $0 1004
+  ${If} $InstallerProgressBar == 0
+    FindWindow $0 "#32770" "" $HWNDPARENT
+    ${If} $0 == 0
+      StrCpy $0 $HWNDPARENT
+    ${EndIf}
+    GetDlgItem $InstallerProgressBar $0 1004
+  ${EndIf}
+
+  ; Keep the requested explanation in the standard intro control. Live status
+  ; is rendered in a separate control so it cannot replace this sentence.
+  GetDlgItem $1 $0 1006
+  SendMessage $1 ${WM_SETTEXT} 0 "STR:You are now installing an electron-based wrapper for the online game PokeRogue! This install is entirely offline gameplay."
+  SendMessage $1 ${WM_GETFONT} 0 0 $2
+
+  ; The native progress bar stays in its standard location. These compact
+  ; controls sit above it, avoiding the clipping caused by moving a large
+  ; multiline label over the bar.
+  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "Installing application files", i ${WS_CHILD}|${WS_VISIBLE}|${SS_LEFT}, i 18, i 18, i 460, i 20, p $0, p 0, p 0, p 0) p.r3'
+  StrCpy $InstallerStatusLabel $3
+  SendMessage $InstallerStatusLabel ${WM_SETFONT} $2 1
+
+  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "[Done] Starting    [Done] Preparing$\r$\n[Now] Installing   [    ] Finishing", i ${WS_CHILD}|${WS_VISIBLE}|${SS_LEFT}, i 18, i 42, i 500, i 40, p $0, p 0, p 0, p 0) p.r3'
+  StrCpy $InstallerStepsLabel $3
   SendMessage $InstallerStepsLabel ${WM_SETFONT} $2 1
-  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "0%", i ${WS_CHILD}|${WS_VISIBLE}|${SS_RIGHT}, i 410, i 188, i 52, i 18, p $HWNDPARENT, p 0, p 0, p 0) p.r0'
-  StrCpy $InstallerPercentLabel $0
+
+  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "0%", i ${WS_CHILD}|${WS_VISIBLE}|${SS_RIGHT}, i 520, i 18, i 70, i 20, p $0, p 0, p 0, p 0) p.r3'
+  StrCpy $InstallerPercentLabel $3
   SendMessage $InstallerPercentLabel ${WM_SETFONT} $2 1
-  System::Call 'user32::SetWindowPos(p $InstallerStatusLabel, p 0, i 145, i 78, i 317, i 28, i 0x0004)'
-  System::Call 'user32::SetWindowPos(p $InstallerProgressBar, p 0, i 145, i 188, i 258, i 16, i 0x0004)'
-  SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Preparing installation"
-  SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting$\r$\n[Now]  Preparing$\r$\n[    ]  Installing$\r$\n[    ]  Finishing"
+
   StrCpy $InstallerProgressTimerStarted "1"
   nsDialogs::CreateTimer InstallerUpdateProgress 100
   Call InstallerUpdateProgress
@@ -81,19 +106,21 @@ Function InstallerUpdateProgress
   ${If} $0 > 100
     StrCpy $0 100
   ${EndIf}
-  SendMessage $InstallerPercentLabel ${WM_SETTEXT} 0 "STR:$0%"
+  ${If} $InstallerPercentLabel != ""
+    SendMessage $InstallerPercentLabel ${WM_SETTEXT} 0 "STR:$0%"
+  ${EndIf}
   ${If} $0 < 5
-    SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Preparing installation"
-    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting$\r$\n[Now]  Preparing$\r$\n[    ]  Installing$\r$\n[    ]  Finishing"
+    SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Installing application files"
+    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Now] Installing   [    ] Finishing"
   ${ElseIf} $0 < 75
     SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Installing application files"
-    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting$\r$\n[Done] Preparing$\r$\n[Now]  Installing$\r$\n[    ]  Finishing"
+    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Now] Installing   [    ] Finishing"
   ${ElseIf} $0 < 96
     SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Installing offline game content"
-    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting$\r$\n[Done] Preparing$\r$\n[Now]  Installing$\r$\n[    ]  Finishing"
+    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Now] Installing   [    ] Finishing"
   ${ElseIf} $0 < 100
     SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Creating shortcuts"
-    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting$\r$\n[Done] Preparing$\r$\n[Done] Installing$\r$\n[Now]  Finishing"
+    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Done] Installing   [Now] Finishing"
   ${Else}
     Call InstallerShowFinishing
   ${EndIf}
@@ -104,7 +131,10 @@ Function InstallerShowFinishing
     SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Finishing setup"
   ${EndIf}
   ${If} $InstallerStepsLabel != ""
-    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting$\r$\n[Done] Preparing$\r$\n[Done] Installing$\r$\n[Now]  Finishing"
+    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Done] Installing   [Now] Finishing"
+  ${EndIf}
+  ${If} $InstallerPercentLabel != ""
+    SendMessage $InstallerPercentLabel ${WM_SETTEXT} 0 "STR:100%"
   ${EndIf}
 FunctionEnd
 
@@ -121,8 +151,11 @@ Function InstallerProgressPageLeave
     System::Call 'user32::DestroyWindow(p $InstallerPercentLabel)'
     StrCpy $InstallerPercentLabel ""
   ${EndIf}
+  ${If} $InstallerStatusLabel != ""
+    System::Call 'user32::DestroyWindow(p $InstallerStatusLabel)'
+    StrCpy $InstallerStatusLabel ""
+  ${EndIf}
   StrCpy $InstallerProgressBar ""
-  StrCpy $InstallerStatusLabel ""
 FunctionEnd
 
 Function InstallerFinishPageShow
