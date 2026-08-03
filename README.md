@@ -38,15 +38,17 @@ Windows may warn that the publisher is unknown because releases are not code-sig
 
 ## Install on macOS
 
-1. Open the [latest release](https://github.com/gaboopa/pokerogue-electron/releases/latest) on an Apple Silicon Mac (M1 or newer).
-2. Download the file ending in `macos-arm64.dmg`.
-3. Open the DMG and drag **PokeRogue Offline** into **Applications**.
-4. Open the app from Applications.
+The prebuilt macOS DMG is an unsigned, unnotarized Apple Silicon build. Depending on the macOS version, Gatekeeper may reject it as damaged without showing **Open Anyway**. The supported no-cost alternative is to build it locally on the Mac where it will be used.
 
-This first macOS distribution is unsigned and unnotarized. If macOS blocks the first launch, try opening the app once, then open **System Settings -> Privacy & Security**, scroll to Security, choose **Open Anyway**, and confirm. Apple makes this button available for about an hour after the blocked launch. See [Apple's guidance](https://support.apple.com/en-ie/102445).
+Follow [BUILDING-MACOS.md](BUILDING-MACOS.md). After installing Node.js 24 and Apple's Command Line Tools, the local build is started with:
+
+```sh
+npm run package:mac:local
+```
+
+The local command downloads the exact game revision, installs locked dependencies, runs tests, builds an ad-hoc signed Apple Silicon DMG, verifies it, and opens it when complete. The resulting DMG is intended only for the Mac that built it and must not be redistributed.
 
 ### macOS requirements
-
 - Apple Silicon Mac (M1 or newer)
 - The macOS version reported by the downloaded app's `LSMinimumSystemVersion`
 - About 1.5 GB of free disk space during installation
@@ -84,8 +86,7 @@ The installer is currently unsigned. Confirm that it came from the [official Rel
 
 ### macOS says the app cannot be opened
 
-Confirm that the DMG came from this repository's official Releases page. Try opening the app once, then use **System Settings -> Privacy & Security -> Open Anyway**. Do not remove quarantine attributes with Terminal commands.
-
+The public DMG is intentionally unsigned and unnotarized. Some macOS versions classify it as damaged and do not offer **Open Anyway**. Do not remove quarantine attributes with Terminal commands. For a no-cost build that runs locally, follow [BUILDING-MACOS.md](BUILDING-MACOS.md) and run `npm run package:mac:local` on the Apple Silicon Mac that will use the app.
 ### My antivirus flags the installer
 
 Unsigned Electron installers can trigger reputation-based warnings. Do not disable your antivirus globally. Confirm the download source and compare the file's SHA-256 checksum with `release-manifest.json` attached to the same release.

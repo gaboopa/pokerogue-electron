@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "wrapperVersion": "0.1.4",
+  "gameRepository": "https://github.com/gaboopa/pokerogue.git",
+  "gameRevision": "ae6a29a0755743a72f928ac8e3adfd00ec6e01f0",
+  "assetsRevision": "909b43612324622608023b3beb2f24f4ef159c1d",
+  "localesRevision": "c2f9c794ce17f1445d14357a4995353447e9df55",
+  "pnpmVersion": "10.34.5"
+}
