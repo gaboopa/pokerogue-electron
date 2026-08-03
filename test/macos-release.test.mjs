@@ -140,6 +140,12 @@ test("local macOS builder rejects non-Apple-Silicon hosts and parses disk space"
   assert.equal(parseAvailableBytes("Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk1 100 20 80 20% /"), 80 * 1024);
 });
 
+test("local macOS preflight validates the codesign executable without a signing identity", async () => {
+  const builder = await readFile(new URL("../scripts/package-mac-local.mjs", import.meta.url), "utf8");
+  assert.ok(builder.includes('checkCommand("codesign", ["--verify", "/usr/bin/codesign"]'));
+  assert.doesNotMatch(builder, /checkCommand\("codesign", \["-h"\]/);
+  assert.ok(builder.includes('Details: ${detail}'));
+});
 test("local DMG verifier keeps release and ad-hoc checks distinct", async () => {
   const verifier = await readFile(new URL("../scripts/verify-mac-package.mjs", import.meta.url), "utf8");
   assert.match(verifier, /mode === "local"/);

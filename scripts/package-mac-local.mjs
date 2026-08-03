@@ -57,8 +57,9 @@ export function parseAvailableBytes(dfOutput) {
 async function checkCommand(command, args, message) {
   try {
     await run(command, args, { quiet: true });
-  } catch {
-    throw new Error(`${message} The command '${command}' was not available or did not run.`);
+  } catch (error) {
+    const detail = error.stderr?.trim() || error.message;
+    throw new Error(`${message} The command '${command}' was not available or did not run. Details: ${detail}`);
   }
 }
 
@@ -68,7 +69,7 @@ export async function checkPrerequisites() {
   await checkCommand("npm", ["--version"], "Install Node.js 24 or newer from https://nodejs.org/en/download/archive/v24.");
   await checkCommand("xcode-select", ["-p"], "Install Apple's Command Line Tools with: xcode-select --install");
   await checkCommand("hdiutil", ["help"], "Apple's disk image tools are missing; install Apple's Command Line Tools.");
-  await checkCommand("codesign", ["-h"], "Apple's code-signing tools are missing; install Apple's Command Line Tools.");
+  await checkCommand("codesign", ["--verify", "/usr/bin/codesign"], "Apple's code-signing tools are missing or cannot validate the system codesign binary; install Apple's Command Line Tools.");
   const availableBytes = parseAvailableBytes(await run("df", ["-Pk", wrapperRoot], { quiet: true }));
   if (availableBytes < minimumFreeBytes) throw new Error("At least 4 GB of free disk space is required for the local game and Electron build.");
 }
