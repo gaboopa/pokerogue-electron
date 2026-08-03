@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { createMenuTemplate } from "../src/menu.mjs";
 import { validateReleaseManifest } from "../src/updater.mjs";
 import { assertManifestCompatibility, createArtifactRecord, createManifest, mergeArtifact } from "../scripts/release-manifest-lib.mjs";
+import { assertSupportedHost, createLocalArtifactName, createLocalPackageArguments, parseAvailableBytes } from "../scripts/package-mac-local.mjs";
 
 function callbacks() {
   return {
@@ -111,4 +112,40 @@ test("updater selects a macOS arm64 artifact from a combined manifest", () => {
     artifacts: [{ platform: "windows", arch: "x64", size: 10, sha256: "a".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/windows.exe" }, { platform: "macos", arch: "arm64", size: 12, sha256: "b".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/macos.dmg" }],
   };
   assert.equal(validateReleaseManifest(manifest, "macos", "arm64").artifact.size, 12);
+});
+
+test("local macOS builder is isolated, pinned, and ad-hoc only", async () => {
+  const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const config = JSON.parse(await readFile(new URL("../build/local-macos-build.json", import.meta.url), "utf8"));
+  assert.equal(packageJson.scripts["package:mac:local"], "node scripts/package-mac-local.mjs");
+  assert.equal(config.wrapperVersion, packageJson.version);
+  assert.equal(config.gameRevision, "ae6a29a0755743a72f928ac8e3adfd00ec6e01f0");
+  assert.equal(config.assetsRevision, "909b43612324622608023b3beb2f24f4ef159c1d");
+  assert.equal(config.localesRevision, "c2f9c794ce17f1445d14357a4995353447e9df55");
+  assert.equal(config.pnpmVersion, "10.34.5");
+  assert.match(createLocalArtifactName(packageJson.version), /LOCAL-ONLY-DO-NOT-DISTRIBUTE\.dmg$/);
+  const args = createLocalPackageArguments(packageJson.version);
+  assert.ok(args.includes("-c.mac.identity=-"));
+  assert.ok(args.includes("-c.mac.hardenedRuntime=false"));
+  assert.ok(args.includes("-c.dmg.sign=false"));
+  assert.ok(args.includes("-c.directories.output=release/local"));
+  assert.ok(args.some(arg => arg.endsWith(".${ext}")));
+});
+
+test("local macOS builder rejects non-Apple-Silicon hosts and parses disk space", () => {
+  assert.doesNotThrow(() => assertSupportedHost({ platform: "darwin", arch: "arm64", nodeVersion: "24.0.0" }));
+  assert.throws(() => assertSupportedHost({ platform: "darwin", arch: "x64", nodeVersion: "24.0.0" }), /Apple Silicon/);
+  assert.throws(() => assertSupportedHost({ platform: "win32", arch: "arm64", nodeVersion: "24.0.0" }), /must be run on macOS/);
+  assert.throws(() => assertSupportedHost({ platform: "darwin", arch: "arm64", nodeVersion: "23.0.0" }), /Node.js 24/);
+  assert.equal(parseAvailableBytes("Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk1 100 20 80 20% /"), 80 * 1024);
+});
+
+test("local DMG verifier keeps release and ad-hoc checks distinct", async () => {
+  const verifier = await readFile(new URL("../scripts/verify-mac-package.mjs", import.meta.url), "utf8");
+  assert.match(verifier, /mode === "local"/);
+  assert.match(verifier, /DO-NOT-DISTRIBUTE/);
+  assert.match(verifier, /Signature=adhoc/);
+  assert.match(verifier, /xcrun.*stapler.*validate/);
+  assert.match(verifier, /finally/);
+  assert.match(verifier, /runExpectedFailure\("codesign", \["--verify", "--deep", "--strict", appPath\]/);
 });
