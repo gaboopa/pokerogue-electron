@@ -4,14 +4,16 @@ import { cp, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  WINDOWS_CACHE_RELATIVE_PATH,
   assertDistributableArtifactName,
-  createRobocopyArguments,
   createWindowsBuildConfig,
+} from "../scripts/package-win.mjs";
+import {
+  WINDOWS_CACHE_RELATIVE_PATH,
+  createRobocopyArguments,
   createWindowsCacheDescriptor,
   isSuccessfulRobocopyExitCode,
   prepareWindowsCache,
-} from "../scripts/package-win.mjs";
+} from "../scripts/package-win-cache.mjs";
 import { createBenchmarkConfig, selectBenchmarkCandidate } from "../scripts/benchmark-win-packaging.mjs";
 import { shouldStageGamePath } from "../scripts/staging-policy.mjs";
 
@@ -153,17 +155,27 @@ test("staged cache is reused, forced refresh rebuilds, and incomplete cache is r
   const buildFn = createMockCacheBuilder(root, calls);
   const first = await prepareWindowsCache({ root, baseBuild: buildConfig, buildFn, copyFn: mockStagingCopy });
   assert.equal(first.reused, false);
+  assert.equal(first.valid, true);
+  assert.equal(Object.hasOwn(first, "prepackagedPath"), true);
+  assert.equal(Object.hasOwn(first, "revisions"), true);
+  assert.ok(first.inventory.files > 0);
+  assert.equal(first.descriptor.fingerprint, (await createWindowsCacheDescriptor(root)).fingerprint);
   assert.equal(first.marker.copyRetries, 2);
   const second = await prepareWindowsCache({ root, baseBuild: buildConfig, buildFn, copyFn: mockStagingCopy });
   assert.equal(second.reused, true);
+  assert.equal(second.valid, true);
+  assert.equal(second.descriptor.fingerprint, first.descriptor.fingerprint);
+  assert.equal(second.marker.fingerprint, first.descriptor.fingerprint);
+  assert.equal(second.revisions.game, "game");
+  assert.deepEqual(second.inventory, first.inventory);
   assert.equal(calls.length, 1);
   await unlink(join(root, ...WINDOWS_CACHE_RELATIVE_PATH.split("/"), "win-unpacked", "resources", "app.asar"));
   const repaired = await prepareWindowsCache({ root, baseBuild: buildConfig, buildFn, copyFn: mockStagingCopy });
   assert.equal(repaired.reused, false);
   assert.equal(calls.length, 2);
-  await prepareWindowsCache({ root, baseBuild: buildConfig, mode: "release", force: true, buildFn, copyFn: mockStagingCopy });
+  await prepareWindowsCache({ root, baseBuild: buildConfig, npmRebuild: true, force: true, buildFn, copyFn: mockStagingCopy });
   assert.equal(calls.length, 3);
-  assert.equal(Object.hasOwn(calls[2].config, "npmRebuild"), false);
+  assert.equal(calls[2].config.npmRebuild, true);
 });
 
 test("failed cache preparation leaves no valid marker", async t => {

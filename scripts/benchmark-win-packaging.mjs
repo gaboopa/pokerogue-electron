@@ -4,7 +4,8 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Arch, build, Platform } from "electron-builder";
-import { createWindowsBuildConfig, prepareWindowsCache, validateStaging } from "./package-win.mjs";
+import { createWindowsBuildConfig } from "./package-win.mjs";
+import { prepareWindowsCache } from "./package-win-cache.mjs";
 import { wrapperRoot } from "./lib.mjs";
 
 export const BENCHMARK_KINDS = Object.freeze(["current", "hybrid", "zip"]);
@@ -81,11 +82,12 @@ export async function runBenchmarkVariant({ baseBuild, kind, prepackagedPath, ca
 }
 
 export async function runWindowsPackagingBenchmark({ root = wrapperRoot, buildFn = build } = {}) {
-  await validateStaging(root);
   const benchmarkRoot = join(root, "release", "benchmark");
-  await rm(benchmarkRoot, { recursive: true, force: true });
+  // prepareWindowsCache validates staging internally; clean up only after it succeeds
+  // so invalid staging cannot erase prior benchmark output.
   const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-  const cache = await prepareWindowsCache({ root, baseBuild: packageJson.build, mode: "staged", buildFn });
+  const cache = await prepareWindowsCache({ root, baseBuild: packageJson.build, npmRebuild: false, buildFn });
+  await rm(benchmarkRoot, { recursive: true, force: true });
   const variants = [];
   for (const kind of BENCHMARK_KINDS) {
     variants.push(await runBenchmarkVariant({
@@ -105,8 +107,8 @@ export async function runWindowsPackagingBenchmark({ root = wrapperRoot, buildFn
       reused: cache.reused,
       preparationSeconds: cache.durationSeconds,
       fingerprint: cache.descriptor.fingerprint,
-      revisions: cache.descriptor.revisions,
-      inventory: cache.descriptor.inventory,
+      revisions: cache.revisions,
+      inventory: cache.inventory,
     },
     baseline,
     candidates: selection.candidates,
