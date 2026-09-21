@@ -15,7 +15,9 @@ test("update URLs are restricted to HTTPS GitHub hosts", () => {
 });
 
 test("release manifest selects the requested platform and requires revisions", () => {
-  const value = { schemaVersion: 1, version: "1.2.3", sourceRevisions: { game: "a", assets: "b", locales: "c" }, artifacts: [{ platform: "windows", arch: "x64", size: 10, sha256: "a".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v1/app.exe" }] };
+  const value = { schemaVersion: 1, version: "1.2.3", sourceRevisions: { game: "a", assets: "b", locales: "c" }, artifacts: [{ platform: "windows", arch: "x64", fileName: "PokeRogue-Offline-1.2.3-windows-x64.exe", size: 10, sha256: "a".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v1/app.exe" }] };
   assert.equal(validateReleaseManifest(value, "windows", "x64").artifact.size, 10);
   assert.throws(() => validateReleaseManifest(value, "macos", "arm64"));
+  assert.throws(() => validateReleaseManifest({ ...value, version: "" }, "windows", "x64"), /Malformed/);
+  assert.throws(() => validateReleaseManifest({ ...value, sourceRevisions: { game: "a", assets: "", locales: "c" } }, "windows", "x64"), /source revision assets/);
 });

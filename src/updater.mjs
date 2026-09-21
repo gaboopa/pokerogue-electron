@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { ALLOWED_UPDATE_HOSTS } from "./constants.mjs";
+import { assertAllowedUrl, assertValidRelease } from "./release-contract.mjs";
 
 export function compareVersions(a, b) {
   const parse = value => {
@@ -16,11 +16,7 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-export function assertAllowedUrl(value) {
-  const url = new URL(value);
-  if (url.protocol !== "https:" || !ALLOWED_UPDATE_HOSTS.has(url.hostname)) throw new Error(`Update URL is not allowed: ${url.origin}`);
-  return url;
-}
+export { assertAllowedUrl } from "./release-contract.mjs";
 
 async function fetchAllowed(url, options = {}, redirects = 0) {
   const checked = assertAllowedUrl(url);
@@ -36,11 +32,9 @@ async function fetchAllowed(url, options = {}, redirects = 0) {
 }
 
 export function validateReleaseManifest(value, expectedPlatform, expectedArch) {
-  if (!value || value.schemaVersion !== 1 || typeof value.version !== "string" || !Array.isArray(value.artifacts)) throw new Error("Malformed release manifest");
+  assertValidRelease(value);
   const artifact = value.artifacts.find(item => item.platform === expectedPlatform && item.arch === expectedArch);
-  if (!artifact || !Number.isSafeInteger(artifact.size) || artifact.size <= 0 || !/^[a-f0-9]{64}$/i.test(artifact.sha256)) throw new Error("No valid update artifact for this platform");
-  assertAllowedUrl(artifact.downloadUrl);
-  if (!value.sourceRevisions?.game || !value.sourceRevisions?.assets || !value.sourceRevisions?.locales) throw new Error("Release source revisions are missing");
+  if (!artifact) throw new Error("No valid update artifact for this platform");
   return { manifest: value, artifact };
 }
 

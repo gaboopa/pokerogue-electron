@@ -37,6 +37,13 @@ jobs:
           path: PokeRogue-Electron
           persist-credentials: false
 
+      - name: Check out shared release contract tools
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: contract-tools
+          persist-credentials: false
+
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
@@ -59,15 +66,16 @@ jobs:
         run: |
           node --input-type=module - <<'NODE'
           import { appendFileSync, readFileSync } from "node:fs";
+          import { resolve } from "node:path";
+          import { pathToFileURL } from "node:url";
           const tag = process.env.TAG;
           const replace = process.env.REPLACE_EXISTING === "true";
           const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
           const manifest = JSON.parse(readFileSync(process.env.MANIFEST, "utf8"));
           if (tag !== `v${packageJson.version}`) throw new Error(`Tag ${tag} does not match package version ${packageJson.version}`);
-          if (manifest.version !== packageJson.version || manifest.schemaVersion !== 1) throw new Error("Release manifest does not match the wrapper version or schema");
+          await import(pathToFileURL(resolve("../contract-tools/src/release-contract.mjs")).href).then(contract => contract.assertValidRelease(manifest, { version: packageJson.version }));
           const mac = manifest.artifacts?.find(item => item.platform === "macos" && item.arch === "arm64");
           if (mac && !replace) throw new Error("Release already contains macos/arm64; rerun with replace_existing enabled to replace it");
-          for (const key of ["game", "assets", "locales"]) if (typeof manifest.sourceRevisions?.[key] !== "string" || !manifest.sourceRevisions[key]) throw new Error(`Manifest is missing source revision ${key}`);
           appendFileSync(process.env.GITHUB_OUTPUT, `game_sha=${manifest.sourceRevisions.game}\n`);
           NODE
 

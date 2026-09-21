@@ -102,8 +102,29 @@ test("release manifests preserve Windows while adding macOS", async () => {
     const replaced = mergeArtifact(duplicate, { ...mac, sha256: "b".repeat(64) }, { replaceExisting: true });
     assert.equal(replaced.artifacts.find(item => item.platform === "macos").sha256, "b".repeat(64));
     assert.equal(replaced.artifacts.filter(item => item.platform === "macos" && item.arch === "arm64").length, 1);
+    const staleUrl = { ...merged, artifacts: merged.artifacts.map(item => item.platform === "windows" ? { ...item, downloadUrl: "http://github.com/evil.exe" } : item) };
+    assert.throws(() => assertManifestCompatibility(staleUrl, { version: "0.1.3", revisions }), /not allowed/);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+test("a malformed non-selected artifact invalidates the whole release", () => {
+  const manifest = {
+    schemaVersion: 1,
+    version: "0.1.3",
+    sourceRevisions: { game: "game", assets: "assets", locales: "locales" },
+    artifacts: [
+      { platform: "windows", arch: "x64", fileName: "PokeRogue-Offline-0.1.3-windows-x64.exe", size: 10, sha256: "a".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/windows.exe" },
+      { platform: "macos", arch: "arm64", size: 12, sha256: "b".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/macos.dmg" },
+    ],
+  };
+  for (const [broken, pattern] of [
+    [{ ...manifest.artifacts[0], sha256: "nothex" }, /sha256/],
+    [{ ...manifest.artifacts[0], size: 0 }, /size/],
+    [{ ...manifest.artifacts[0], downloadUrl: "https://github.com.evil.example/app.exe" }, /not allowed/],
+    [{ ...manifest.artifacts[0], fileName: "Dev-DO-NOT-DISTRIBUTE.exe" }, /fileName/],
+  ]) {
+    assert.throws(() => validateReleaseManifest({ ...manifest, artifacts: [broken, manifest.artifacts[1]] }, "macos", "arm64"), pattern);
   }
 });
 test("updater selects a macOS arm64 artifact from a combined manifest", () => {
@@ -111,7 +132,7 @@ test("updater selects a macOS arm64 artifact from a combined manifest", () => {
     schemaVersion: 1,
     version: "0.1.3",
     sourceRevisions: { game: "game", assets: "assets", locales: "locales" },
-    artifacts: [{ platform: "windows", arch: "x64", size: 10, sha256: "a".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/windows.exe" }, { platform: "macos", arch: "arm64", size: 12, sha256: "b".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/macos.dmg" }],
+    artifacts: [{ platform: "windows", arch: "x64", fileName: "PokeRogue-Offline-0.1.3-windows-x64.exe", size: 10, sha256: "a".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/windows.exe" }, { platform: "macos", arch: "arm64", fileName: "PokeRogue-Offline-0.1.3-macos-arm64.dmg", size: 12, sha256: "b".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/macos.dmg" }],
   };
   assert.equal(validateReleaseManifest(manifest, "macos", "arm64").artifact.size, 12);
 });
