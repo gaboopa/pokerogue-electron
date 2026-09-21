@@ -19,7 +19,7 @@
     "package:win:benchmark": "node scripts/benchmark-win-packaging.mjs",
     "package:mac": "npm run build:game && electron-builder --mac dmg --arm64",
     "package:mac:local": "node scripts/package-mac-local.mjs",
-    "release:manifest": "node scripts/release-manifest-v2.mjs"
+    "release:manifest": "node scripts/release-manifest.mjs"
   },
   "devDependencies": {
     "electron": "^42.0.0",
