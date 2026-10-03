@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { gameRoot, git, run, wrapperRoot } from "./lib.mjs";
@@ -55,5 +55,9 @@ await git(["submodule", "update", "--init", "--recursive", "--depth", "1"]);
 await run(process.execPath, [join(gameRoot, "node_modules", "typescript", "bin", "tsc"), "--noEmit"], { cwd: gameRoot });
 await run(process.execPath, [join(gameRoot, "node_modules", "vitest", "vitest.mjs"), "run", "--silent=passed-only"], { cwd: gameRoot });
 await run(process.execPath, [join(wrapperRoot, "scripts", "build-game.mjs")], { cwd: wrapperRoot });
-await run(process.execPath, ["--test", join(wrapperRoot, "test", "*.test.mjs")], { cwd: wrapperRoot, shell: true });
+const wrapperTests = (await readdir(join(wrapperRoot, "test")))
+  .filter(name => name.endsWith(".test.mjs"))
+  .sort()
+  .map(name => join(wrapperRoot, "test", name));
+await run(process.execPath, ["--test", ...wrapperTests], { cwd: wrapperRoot });
 console.log("Upstream merge and validation completed. Review the report and smoke-test before merging this update branch.");
