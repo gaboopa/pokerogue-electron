@@ -1,6 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assertAllowedUrl, compareVersions, validateReleaseManifest } from "../src/updater.mjs";
+import { createHash } from "node:crypto";
+import { Writable } from "node:stream";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { assertAllowedUrl, compareVersions, downloadVerified, validateReleaseManifest } from "../src/updater.mjs";
+
+const digest = value => createHash("sha256").update(value).digest("hex");
+const artifact = (bytes, downloadUrl = "https://github.com/gaboopa/releases/download/v1/app.dmg") => ({ downloadUrl, size: Buffer.byteLength(bytes), sha256: digest(bytes) });
+const responseFor = bytes => new Response(new ReadableStream({ start(controller) { controller.enqueue(Buffer.from(bytes)); controller.close(); } }));
+
+async function withDownloadRoot(run) {
+  const root = await mkdtemp(join(tmpdir(), "pokerogue-update-"));
+  const originalFetch = globalThis.fetch;
+  try {
+    await run(root, setFetch => { globalThis.fetch = setFetch; });
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function partialFiles(root) {
+  return (await readdir(root)).filter(name => name.endsWith(".partial"));
+}
 
 test("semantic versions compare without lexical mistakes", () => {
   assert.equal(compareVersions("1.10.0", "1.9.9"), 1);
@@ -20,4 +44,135 @@ test("release manifest selects the requested platform and requires revisions", (
   assert.throws(() => validateReleaseManifest(value, "macos", "arm64"));
   assert.throws(() => validateReleaseManifest({ ...value, version: "" }, "windows", "x64"), /Malformed/);
   assert.throws(() => validateReleaseManifest({ ...value, sourceRevisions: { game: "a", assets: "", locales: "c" } }, "windows", "x64"), /source revision assets/);
+});
+
+test("overlapping same-destination downloads return only bytes matching their verified hash", async () => {
+  await withDownloadRoot(async (root, setFetch) => {
+    let releaseFirstChunk;
+    let firstChunkStarted;
+    const firstStarted = new Promise(resolve => { firstChunkStarted = resolve; });
+    const firstMayFinish = new Promise(resolve => { releaseFirstChunk = resolve; });
+    let fetchCount = 0;
+    setFetch(async () => {
+      fetchCount++;
+      if (fetchCount === 1) {
+        return new Response(new ReadableStream({
+          async start(controller) {
+            controller.enqueue(Buffer.from("AAAA"));
+            firstChunkStarted();
+            await firstMayFinish;
+            controller.enqueue(Buffer.from("BBBB"));
+            controller.close();
+          }
+        }));
+      }
+      return responseFor("XXXXXXXX");
+    });
+
+    const expected = artifact("AAAABBBB");
+    const first = downloadVerified(expected, root);
+    await firstStarted;
+    const second = downloadVerified(expected, root);
+    releaseFirstChunk();
+
+    const [returnedPath, secondResult] = await Promise.all([first, second]);
+    assert.equal(secondResult, returnedPath);
+    assert.equal(digest(await readFile(returnedPath)), expected.sha256);
+    assert.equal(await readFile(returnedPath, "utf8"), "AAAABBBB");
+    assert.equal(fetchCount, 1);
+  });
+});
+
+test("same-basename artifact collisions preserve the first verified file", async () => {
+  await withDownloadRoot(async (root, setFetch) => {
+    setFetch(async request => responseFor(new URL(request.url ?? request).searchParams.get("data")));
+    const firstArtifact = artifact("AAAABBBB", "https://github.com/gaboopa/releases/download/v1/app.dmg?data=AAAABBBB");
+    const differentArtifact = artifact("XXXXXXXX", "https://github.com/gaboopa/releases/download/v2/app.dmg?data=XXXXXXXX");
+    const returnedPath = await downloadVerified(firstArtifact, root);
+
+    await assert.rejects(downloadVerified(differentArtifact, root), /different verified artifact/i);
+    assert.equal(digest(await readFile(returnedPath)), firstArtifact.sha256);
+  });
+});
+
+test("failed streams and verification errors remove only their owned partial and allow retry", async () => {
+  await withDownloadRoot(async (root, setFetch) => {
+    let attempts = 0;
+    setFetch(async () => {
+      attempts++;
+      if (attempts === 1) {
+        return new Response(new ReadableStream({ start(controller) { controller.enqueue(Buffer.from("AAAA")); controller.error(new Error("connection reset")); } }));
+      }
+      return responseFor("AAAABBBB");
+    });
+    const expected = artifact("AAAABBBB");
+
+    await assert.rejects(downloadVerified(expected, root), /connection reset/);
+    assert.deepEqual(await partialFiles(root), []);
+    const returnedPath = await downloadVerified(expected, root);
+    assert.equal(digest(await readFile(returnedPath)), expected.sha256);
+
+    setFetch(async () => responseFor("XXXXXXXX"));
+    await assert.rejects(downloadVerified(expected, join(root, "bad-hash")), /failed verification/);
+    assert.deepEqual(await partialFiles(join(root, "bad-hash")), []);
+    await assert.rejects(downloadVerified({ ...expected, size: expected.size + 1 }, join(root, "bad-size")), /failed verification/);
+    assert.deepEqual(await partialFiles(join(root, "bad-size")), []);
+  });
+});
+
+test("disk-write, stat, and promotion failures clean their partial files", async () => {
+  await withDownloadRoot(async (root, setFetch) => {
+    setFetch(async () => responseFor("AAAABBBB"));
+    const expected = artifact("AAAABBBB");
+    const failedOperations = [
+      ["disk write", { writeStream: () => new Writable({ write(_chunk, _encoding, callback) { callback(new Error("disk full")); } }) }, /disk full/],
+      ["stat", { stat: async path => { if (path.endsWith(".partial")) throw new Error("stat failed"); return (await import("node:fs/promises")).stat(path); } }, /stat failed/],
+      ["rename", { rename: async () => { throw new Error("promotion failed"); } }, /promotion failed/],
+    ];
+
+    for (const [name, operations, error] of failedOperations) {
+      const directory = join(root, name.replaceAll(" ", "-"));
+      await assert.rejects(downloadVerified(expected, directory, operations), error);
+      assert.deepEqual(await partialFiles(directory), []);
+    }
+  });
+});
+
+test("failed cleanup leaves another destination's partial intact and does not block it", async () => {
+  await withDownloadRoot(async (root, setFetch) => {
+    let releaseSecond;
+    let announceSecondWriter;
+    const secondWriterStarted = new Promise(resolve => { announceSecondWriter = resolve; });
+    const secondMayFinish = new Promise(resolve => { releaseSecond = resolve; });
+    let writersStarted = 0;
+    setFetch(async request => {
+      if (new URL(request).pathname.endsWith("app.dmg")) {
+        return new Response(new ReadableStream({ start(controller) { controller.error(new Error("first destination failed")); } }));
+      }
+      return new Response(new ReadableStream({
+        async start(controller) {
+          controller.enqueue(Buffer.from("independent"));
+          await secondMayFinish;
+          controller.close();
+        }
+      }));
+    });
+
+    const fileOperations = { writeStream: handle => {
+      writersStarted++;
+      if (writersStarted === 2) announceSecondWriter();
+      return handle.createWriteStream();
+    } };
+    const secondRoot = join(root, "other-destination");
+    const first = downloadVerified(artifact("AAAABBBB"), root, fileOperations);
+    const second = downloadVerified(artifact("independent", "https://github.com/gaboopa/releases/download/v1/other.zip"), secondRoot, fileOperations);
+    await secondWriterStarted;
+    assert.equal((await partialFiles(secondRoot)).length, 1);
+    await assert.rejects(first, /first destination failed/);
+    assert.equal((await partialFiles(secondRoot)).length, 1);
+    releaseSecond();
+    const independentPath = await second;
+    assert.equal(await readFile(independentPath, "utf8"), "independent");
+    assert.deepEqual(await partialFiles(secondRoot), []);
+  });
 });

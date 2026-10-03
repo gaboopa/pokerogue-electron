@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { mkdir, open, rename, rm, stat } from "node:fs/promises";
+import { basename, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { assertAllowedUrl, assertValidRelease } from "./release-contract.mjs";
 
@@ -48,20 +48,72 @@ export async function checkForUpdate(repository, currentVersion, platform, arch)
   return { ...result, available: compareVersions(raw.version, currentVersion) > 0 };
 }
 
-export async function downloadVerified(artifact, destinationRoot) {
-  await mkdir(destinationRoot, { recursive: true });
-  const finalPath = join(destinationRoot, basename(new URL(artifact.downloadUrl).pathname));
-  const partialPath = `${finalPath}.partial`;
-  await rm(partialPath, { force: true });
-  const response = await fetchAllowed(artifact.downloadUrl, { headers: { accept: "application/octet-stream" } });
-  const hash = createHash("sha256");
-  const transform = new TransformStream({ transform(chunk, controller) { hash.update(chunk); controller.enqueue(chunk); } });
-  await pipeline(response.body.pipeThrough(transform), createWriteStream(partialPath));
-  const size = (await stat(partialPath)).size;
-  if (size !== artifact.size || hash.digest("hex").toLowerCase() !== artifact.sha256.toLowerCase()) {
-    await rm(partialPath, { force: true });
-    throw new Error("Downloaded update failed verification");
+const destinationQueues = new Map();
+
+function withDestinationLock(destination, operation) {
+  const previous = destinationQueues.get(destination) ?? Promise.resolve();
+  let release;
+  const current = new Promise(resolveLock => { release = resolveLock; });
+  const tail = previous.then(() => current);
+  destinationQueues.set(destination, tail);
+
+  return previous.then(operation).finally(() => {
+    release();
+    if (destinationQueues.get(destination) === tail) destinationQueues.delete(destination);
+  });
+}
+
+async function matchesArtifact(path, artifact, statFile) {
+  let file;
+  try {
+    file = await statFile(path);
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
   }
-  await rename(partialPath, finalPath);
-  return finalPath;
+  if (file.size !== artifact.size) return false;
+
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex").toLowerCase() === artifact.sha256.toLowerCase();
+}
+
+export async function downloadVerified(artifact, destinationRoot, fileOperations = {}) {
+  const statFile = fileOperations.stat ?? stat;
+  const renameFile = fileOperations.rename ?? rename;
+  const writeStreamFor = fileOperations.writeStream ?? (handle => handle.createWriteStream());
+  await mkdir(destinationRoot, { recursive: true });
+  const finalPath = resolve(destinationRoot, basename(new URL(artifact.downloadUrl).pathname));
+
+  return withDestinationLock(finalPath, async () => {
+    if (await matchesArtifact(finalPath, artifact, statFile)) return finalPath;
+    try {
+      await statFile(finalPath);
+      throw new Error("A different verified artifact already occupies this download path");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+
+    const partialPath = `${finalPath}.${randomUUID()}.partial`;
+    let ownsPartial = false;
+    let fileHandle;
+    try {
+      const response = await fetchAllowed(artifact.downloadUrl, { headers: { accept: "application/octet-stream" } });
+      const hash = createHash("sha256");
+      const transform = new TransformStream({ transform(chunk, controller) { hash.update(chunk); controller.enqueue(chunk); } });
+      fileHandle = await open(partialPath, "wx");
+      ownsPartial = true;
+      await pipeline(response.body.pipeThrough(transform), writeStreamFor(fileHandle));
+      const size = (await statFile(partialPath)).size;
+      if (size !== artifact.size || hash.digest("hex").toLowerCase() !== artifact.sha256.toLowerCase()) {
+        throw new Error("Downloaded update failed verification");
+      }
+      await renameFile(partialPath, finalPath);
+      ownsPartial = false;
+      return finalPath;
+    } finally {
+      if (fileHandle) await fileHandle.close().catch(() => {});
+      if (ownsPartial) await rm(partialPath, { force: true });
+    }
+  });
 }
