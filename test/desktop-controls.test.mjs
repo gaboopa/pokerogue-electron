@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { createMenuTemplate } from "../src/menu.mjs";
 
 const main = await readFile(new URL("../src/main.mjs", import.meta.url), "utf8");
-const preload = await readFile(new URL("../src/preload-keybindings.mjs", import.meta.url), "utf8");
+const preload = await readFile(new URL("../src/preload-cheats.cjs", import.meta.url), "utf8");
 
 test("desktop reload, fullscreen, and developer shortcuts remain registered", () => {
   const menu = createMenuTemplate({

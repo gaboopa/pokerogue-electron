@@ -18,6 +18,10 @@ function domCode(key) {
   if (/^[0-9]$/.test(key)) return `Digit${key}`;
   return key;
 }
+function domKeyCode(key) {
+  if (/^[A-Z0-9]$/.test(key)) return key.charCodeAt(0);
+  return ({ ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Enter: 13, Escape: 27, Tab: 9, Space: 32 })[key];
+}
 
 class KeyRemapController {
   constructor(emit) { this.emit = emit; this.mappings = {}; this.sources = new Map(); this.targetCounts = new Map(); }
@@ -53,9 +57,16 @@ class KeyRemapController {
   }
 }
 
-const remapper = new KeyRemapController((type, key, repeat) => window.dispatchEvent(new KeyboardEvent(type, {
-  key: domKey(key), code: domCode(key), repeat, bubbles: true, cancelable: true,
-})));
+const remapper = new KeyRemapController((type, key, repeat) => {
+  contextBridge.executeInMainWorld({
+    func: (eventType, eventKey, eventCode, keyCode, isRepeat) => {
+      const event = new KeyboardEvent(eventType, { key: eventKey, code: eventCode, repeat: isRepeat, bubbles: true, cancelable: true });
+      Object.defineProperty(event, "keyCode", { get: () => keyCode });
+      window.dispatchEvent(event);
+    },
+    args: [type, domKey(key), domCode(key), domKeyCode(key), repeat],
+  });
+});
 function remapKeyboardEvent(event) {
   if (!remapper.handle(event)) return;
   event.preventDefault(); event.stopImmediatePropagation();
