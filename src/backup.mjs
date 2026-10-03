@@ -4,6 +4,8 @@ import { basename, join } from "node:path";
 
 export const STORAGE_DIRECTORIES = ["Local Storage", "IndexedDB", "Session Storage"];
 
+const filesystem = { cp, mkdir, rename, rm };
+
 async function hashTree(root) {
   const hash = createHash("sha256");
   async function visit(dir, prefix = "") {
@@ -52,22 +54,54 @@ export async function validateBackup(backupPath) {
   return manifest;
 }
 
-export async function restoreBackup(userData, backupPath) {
+export async function restoreBackup(userData, backupPath, fs = filesystem) {
   const manifest = await validateBackup(backupPath);
-  const rollback = join(userData, `.restore-rollback-${Date.now()}`);
-  await mkdir(rollback, { recursive: true });
+  const rollback = fs.rollbackPath ?? join(userData, `.restore-rollback-${Date.now()}`);
+  const movedOriginals = new Set();
+  const attemptedCopies = new Set();
+  await fs.mkdir(rollback, { recursive: true });
   try {
     for (const name of manifest.included) {
       const current = join(userData, name);
-      try { await rename(current, join(rollback, basename(name))); } catch (error) { if (error.code !== "ENOENT") throw error; }
-      await cp(join(backupPath, "data", name), current, { recursive: true, errorOnExist: true });
+      try {
+        await fs.rename(current, join(rollback, basename(name)));
+        movedOriginals.add(name);
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+      attemptedCopies.add(name);
+      await fs.cp(join(backupPath, "data", name), current, { recursive: true, errorOnExist: true });
     }
-    await rm(rollback, { recursive: true, force: true });
   } catch (error) {
-    for (const name of manifest.included) {
-      await rm(join(userData, name), { recursive: true, force: true });
-      try { await rename(join(rollback, basename(name)), join(userData, name)); } catch (rollbackError) { if (rollbackError.code !== "ENOENT") throw rollbackError; }
+    const recoveryErrors = [];
+    for (const name of [...manifest.included].reverse()) {
+      if (attemptedCopies.has(name)) {
+        try {
+          await fs.rm(join(userData, name), { recursive: true, force: true });
+        } catch (rollbackError) {
+          recoveryErrors.push(`${name}: ${rollbackError.message}`);
+          continue;
+        }
+      }
+      if (movedOriginals.has(name)) {
+        try {
+          await fs.rename(join(rollback, basename(name)), join(userData, name));
+        } catch (rollbackError) {
+          recoveryErrors.push(`${name}: ${rollbackError.message}`);
+        }
+      }
+    }
+    if (!recoveryErrors.length) {
+      try {
+        await fs.rm(rollback, { recursive: true, force: true });
+      } catch (rollbackError) {
+        recoveryErrors.push(`recovery cleanup: ${rollbackError.message}`);
+      }
+    }
+    if (recoveryErrors.length) {
+      throw new Error(`Restore failed: ${error.message}. Rollback also failed: ${recoveryErrors.join("; ")}. Recovery data retained at ${rollback}`, { cause: error });
     }
     throw error;
   }
+  await fs.rm(rollback, { recursive: true, force: true });
 }
