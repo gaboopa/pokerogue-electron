@@ -4,6 +4,8 @@ Prepared 2026-10-03 from the supplied PokeRogue Offline repository review.
 Verified repository baseline: main at 6626c70. The working tree was clean before planning.
 Status: user approved agent dispatch on 2026-10-03. The first P1 batch is dispatched in isolated worktrees; acceptance and integration remain pending.
 
+Current implementation evidence is recorded in [progress.md](progress.md). The all-updates goal approves the optional queue as well as correctness work.
+
 ## Outcome and source
 
 Repair all ten confirmed correctness findings before the next release. They map to nine implementation tickets because findings 1 and 9 require the same download ownership change. Four further tickets cover dependency retesting, Backup consistency research, and native Windows/macOS release validation. Nine optional tickets cover the six simplification recommendations and streaming artifact hashing. S2 and S6 each split into independent module tasks.
@@ -104,14 +106,14 @@ Recommended dispatch batches: R01/R02/R03, then R04 plus R07/R09, then R05/R08/R
 
 ### After R01 through R03
 
-- [ ] The overlapping download reproduction hashes the returned file and rejects same-size corruption.
-- [ ] Fault-injected restore tests compare original bytes and retain recovery data when rollback fails.
-- [ ] Native input through the active preload drives a numeric-keyCode consumer.
-- [ ] Integrated npm test passes; record actual count, not the historical 55.
+- [x] The overlapping download reproduction hashes the returned file and rejects same-size corruption.
+- [x] Fault-injected restore tests compare original bytes and retain recovery data when rollback fails.
+- [x] Native input through the active preload drives a numeric-keyCode consumer.
+- [x] Integrated npm test passes; record actual count, not the historical 55.
 
 ### After R04 through R06
 
-- [ ] Valid historical backups still restore under the documented compatibility policy; malformed inventories and corruption fail before mutation.
+- [x] Valid historical backups still restore under the documented compatibility policy; malformed inventories and corruption fail before mutation.
 - [ ] Two failed-startup attempts recover without an endless pending marker or loading partially restored Save data.
 - [ ] Behavioral lifecycle tests reopen the game with auxiliary windows alive and guard destroyed-window callbacks.
 - [ ] Integrated npm test passes. Confirm existing staged resources remain usable with npm run run:packaged and an isolated profile when they are present.
@@ -120,7 +122,7 @@ Recommended dispatch batches: R01/R02/R03, then R04 plus R07/R09, then R05/R08/R
 
 - [ ] Synchronization validation runs with executable/repository paths containing spaces and without a shell.
 - [ ] The actual report-and-stage sequence preserves its review report.
-- [ ] Editor load and Reset to Vanilla can repair null local configuration.
+- [x] Editor load and Reset to Vanilla can repair null local configuration.
 - [ ] Integrated npm test passes. Do not run synchronization against the real upstream checkout merely to verify fixture coverage.
 
 ### After R10 and R11
