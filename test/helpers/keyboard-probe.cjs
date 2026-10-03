@@ -5,21 +5,23 @@ const { resolve } = require("node:path");
 const [profilePath, resultPath] = process.argv.slice(2);
 app.setPath("userData", resolve(profilePath));
 let window;
+let observedEventCount = 0;
 const observations = {};
 
 function fail(error) {
   writeFile(resultPath, JSON.stringify({ error: error?.stack ?? String(error), observations })).finally(() => app.exit(1));
 }
 
-async function pause() {
-  await new Promise((resolve) => setTimeout(resolve, 80));
+async function updateMappings(mappings) {
+  window.webContents.send("keybindings:update", mappings);
+  await window.webContents.executeJavaScript("0");
 }
 
 async function reset(name, mappings) {
   observations[name] = [];
   await window.webContents.executeJavaScript("window.keyboardProbe.events.length = 0; window.keyboardProbe.pressed = [];");
-  window.webContents.send("keybindings:update", mappings);
-  await pause();
+  observedEventCount = 0;
+  await updateMappings(mappings);
 }
 
 async function capture(name) {
@@ -27,8 +29,19 @@ async function capture(name) {
   observations[`${name}Pressed`] = await window.webContents.executeJavaScript("window.keyboardProbe.pressed.slice()");
 }
 
-function key(type, keyCode, extra = {}) {
+async function waitForEvents(count) {
+  const deadline = Date.now() + 4000;
+  while (Date.now() < deadline) {
+    const received = await window.webContents.executeJavaScript("window.keyboardProbe.events.length");
+    if (received >= count) { observedEventCount = received; return; }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for ${count} keyboard events`);
+}
+
+async function key(type, keyCode, eventCount, extra = {}) {
   window.webContents.sendInputEvent({ type, keyCode, ...extra });
+  if (eventCount > observedEventCount) await waitForEvents(eventCount);
 }
 
 async function run() {
@@ -69,58 +82,75 @@ async function run() {
   window.webContents.focus();
 
   await reset("named", { W: "ArrowUp" });
-  key("keyDown", "W");
-  key("keyUp", "W");
+  await key("keyDown", "W", 1);
+  await key("keyUp", "W", 2);
   await capture("named");
 
   await reset("letter", { Q: "A" });
-  key("keyDown", "Q");
-  key("keyUp", "Q");
+  await key("keyDown", "Q", 1);
+  await key("keyUp", "Q", 2);
   await capture("letter");
 
   await reset("digit", { "1": "Space" });
-  key("keyDown", "1");
-  key("keyUp", "1");
+  await key("keyDown", "1", 1);
+  await key("keyUp", "1", 2);
   await capture("digit");
 
+  await reset("digitTarget", { Q: "1" });
+  await key("keyDown", "Q", 1);
+  await key("keyUp", "Q", 2);
+  await capture("digitTarget");
+
   await reset("repeat", { W: "ArrowUp" });
-  key("keyDown", "W");
-  await pause();
-  key("keyDown", "W", { modifiers: ["isautorepeat"] });
-  key("keyUp", "W");
+  await key("keyDown", "W", 1);
+  await key("keyDown", "W", 2, { modifiers: ["isautorepeat"] });
+  await key("keyUp", "W", 3);
   await capture("repeat");
 
   await reset("mappingChange", { W: "ArrowUp" });
-  key("keyDown", "W");
-  await pause();
-  window.webContents.send("keybindings:update", { W: "Enter" });
-  await pause();
-  key("keyUp", "W");
+  await key("keyDown", "W", 1);
+  await updateMappings({ W: "Enter" });
+  await waitForEvents(2);
+  await key("keyUp", "W", 2);
   await capture("mappingChange");
 
   await reset("sharedTarget", { W: "ArrowUp", A: "ArrowUp" });
-  key("keyDown", "W");
-  key("keyDown", "A");
-  key("keyUp", "W");
-  key("keyUp", "A");
+  await key("keyDown", "W", 1);
+  await key("keyDown", "A", 1);
+  await key("keyUp", "W", 1);
+  await key("keyUp", "A", 2);
   await capture("sharedTarget");
 
   await reset("identity", { W: "W" });
-  key("keyDown", "W");
-  key("keyUp", "W");
+  await key("keyDown", "W", 1);
+  await key("keyUp", "W", 2);
   await capture("identity");
 
   await reset("modifier", { A: "ArrowUp" });
-  key("keyDown", "Control");
-  key("keyDown", "A", { modifiers: ["control"] });
-  key("keyUp", "A", { modifiers: ["control"] });
-  key("keyUp", "Control");
+  await key("keyDown", "Control", 1);
+  await key("keyDown", "A", 2, { modifiers: ["control"] });
+  await key("keyUp", "A", 3, { modifiers: ["control"] });
+  await key("keyUp", "Control", 4);
   await capture("modifier");
 
+  await reset("altModifier", { A: "ArrowUp" });
+  await key("keyDown", "Alt", 1);
+  await key("keyDown", "A", 2, { modifiers: ["alt"] });
+  await key("keyUp", "A", 3, { modifiers: ["alt"] });
+  await key("keyUp", "Alt", 4);
+  await capture("altModifier");
+
+  await reset("metaModifier", { A: "ArrowUp" });
+  await key("keyDown", "Meta", 1);
+  await key("keyDown", "A", 2, { modifiers: ["meta"] });
+  await key("keyUp", "A", 3, { modifiers: ["meta"] });
+  await key("keyUp", "Meta", 4);
+  await capture("metaModifier");
+
   await reset("blur", { W: "ArrowUp" });
-  key("keyDown", "W");
-  await pause();
+  await key("keyDown", "W", 1);
   await window.webContents.executeJavaScript("window.dispatchEvent(new Event('blur'))");
+  await waitForEvents(2);
   await capture("blur");
   observations.blurPressed = await window.webContents.executeJavaScript("window.keyboardProbe.pressed.slice()");
 
