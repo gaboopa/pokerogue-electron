@@ -1,10 +1,27 @@
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 export const STORAGE_DIRECTORIES = ["Local Storage", "IndexedDB", "Session Storage"];
 
 const filesystem = { cp, mkdir, rename, rm };
+const CURRENT_SCHEMA_VERSION = 2;
+
+function compareNames(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function sortedNames(names) {
+  return [...names].sort(compareNames);
+}
+
+function updateFrame(hash, value) {
+  const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);
+  const length = Buffer.alloc(8);
+  length.writeBigUInt64BE(BigInt(bytes.length));
+  hash.update(length);
+  hash.update(bytes);
+}
 
 async function hashTree(root) {
   const hash = createHash("sha256");
@@ -22,6 +39,89 @@ async function hashTree(root) {
   return hash.digest("hex");
 }
 
+async function hashTreeV2(root) {
+  const hash = createHash("sha256");
+  async function visit(dir, prefix = "") {
+    for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => compareNames(a.name, b.name))) {
+      const relativePath = (prefix ? `${prefix}/${entry.name}` : entry.name).replaceAll("\\", "/");
+      if (entry.isDirectory()) {
+        updateFrame(hash, "directory");
+        updateFrame(hash, relativePath);
+        await visit(join(dir, entry.name), relativePath);
+        updateFrame(hash, "end-directory");
+      } else if (entry.isFile()) {
+        updateFrame(hash, "file");
+        updateFrame(hash, relativePath);
+        updateFrame(hash, await readFile(join(dir, entry.name)));
+      } else {
+        throw new Error("Backup data contains a symbolic link or unsupported entry");
+      }
+    }
+  }
+  await visit(root);
+  return hash.digest("hex");
+}
+
+async function assertSafeTree(root) {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) throw new Error("Backup data contains a symbolic link or unsupported entry");
+    if (entry.isDirectory()) await assertSafeTree(join(root, entry.name));
+    else if (!entry.isFile()) throw new Error("Backup data contains a symbolic link or unsupported entry");
+  }
+}
+
+async function assertInventory(backupPath, included) {
+  const dataRoot = join(backupPath, "data");
+  let rootInfo;
+  try {
+    rootInfo = await lstat(dataRoot);
+  } catch (error) {
+    if (error.code === "ENOENT") throw new Error("Backup data directory is missing");
+    throw error;
+  }
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) throw new Error("Backup data root must be a directory");
+
+  const entries = await readdir(dataRoot, { withFileTypes: true });
+  if (entries.some(entry => !entry.isDirectory() || !STORAGE_DIRECTORIES.includes(entry.name))) {
+    throw new Error("Backup data contains an unexpected storage directory or entry");
+  }
+  const actual = sortedNames(entries.map(entry => entry.name));
+  const expected = sortedNames(included);
+  if (actual.length !== expected.length || actual.some((name, index) => name !== expected[index])) {
+    throw new Error("Backup inventory does not match its data directories");
+  }
+  await assertSafeTree(dataRoot);
+}
+
+async function hashBackupV2(dataRoot, metadata) {
+  const hash = createHash("sha256");
+  updateFrame(hash, "pokerogue-offline-backup");
+  updateFrame(hash, String(metadata.schemaVersion));
+  updateFrame(hash, metadata.createdAt);
+  updateFrame(hash, JSON.stringify(metadata.included));
+  updateFrame(hash, Buffer.from(await hashTreeV2(dataRoot), "hex"));
+  return hash.digest("hex");
+}
+
+function validateManifestShape(manifest) {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) throw new Error("Unsupported backup manifest");
+  const expectedKeys = ["schemaVersion", "createdAt", "included", "sha256"];
+  const keys = Object.keys(manifest);
+  if (keys.length !== expectedKeys.length || keys.some(key => !expectedKeys.includes(key))) throw new Error("Unsupported backup manifest");
+  if (manifest.schemaVersion !== 1 && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) throw new Error("Unsupported backup manifest version");
+  if (typeof manifest.createdAt !== "string" || !Number.isFinite(Date.parse(manifest.createdAt)) || new Date(manifest.createdAt).toISOString() !== manifest.createdAt) {
+    throw new Error("Backup manifest has an invalid creation time");
+  }
+  if (!Array.isArray(manifest.included) || manifest.included.some(name => typeof name !== "string" || !STORAGE_DIRECTORIES.includes(name))) {
+    throw new Error("Backup contains an unexpected storage directory");
+  }
+  if (new Set(manifest.included).size !== manifest.included.length) throw new Error("Backup inventory contains duplicate directories");
+  if (manifest.schemaVersion === CURRENT_SCHEMA_VERSION && sortedNames(manifest.included).some((name, index) => name !== manifest.included[index])) {
+    throw new Error("Backup inventory is not in canonical order");
+  }
+  if (typeof manifest.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(manifest.sha256)) throw new Error("Backup manifest has an invalid checksum");
+}
+
 export async function createBackup(userData, backupRoot) {
   const stamp = new Date().toISOString().replaceAll(":", "-");
   const destination = join(backupRoot, `backup-${stamp}`);
@@ -29,27 +129,34 @@ export async function createBackup(userData, backupRoot) {
   const included = [];
   for (const name of STORAGE_DIRECTORIES) {
     const source = join(userData, name);
+    let info;
     try {
-      if ((await stat(source)).isDirectory()) {
-        await cp(source, join(destination, "data", name), { recursive: true, errorOnExist: true });
-        included.push(name);
-      }
+      info = await lstat(source);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
+      continue;
     }
+    if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`Save storage path is not a directory: ${name}`);
+    await cp(source, join(destination, "data", name), { recursive: true, errorOnExist: true });
+    included.push(name);
   }
-  const manifest = { schemaVersion: 1, createdAt: new Date().toISOString(), included };
-  await writeFile(join(destination, "manifest.json"), JSON.stringify(manifest, null, 2));
-  manifest.sha256 = await hashTree(join(destination, "data"));
+  const manifest = {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    createdAt: new Date().toISOString(),
+    included: sortedNames(included)
+  };
+  manifest.sha256 = await hashBackupV2(join(destination, "data"), manifest);
   await writeFile(join(destination, "manifest.json"), JSON.stringify(manifest, null, 2));
   return destination;
 }
 
 export async function validateBackup(backupPath) {
   const manifest = JSON.parse(await readFile(join(backupPath, "manifest.json"), "utf8"));
-  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.included) || !manifest.sha256) throw new Error("Unsupported backup manifest");
-  if (manifest.included.some(name => !STORAGE_DIRECTORIES.includes(name))) throw new Error("Backup contains an unexpected storage directory");
-  const actual = await hashTree(join(backupPath, "data"));
+  validateManifestShape(manifest);
+  await assertInventory(backupPath, manifest.included);
+  const actual = manifest.schemaVersion === 1
+    ? await hashTree(join(backupPath, "data"))
+    : await hashBackupV2(join(backupPath, "data"), manifest);
   if (actual !== manifest.sha256) throw new Error("Backup checksum verification failed");
   return manifest;
 }

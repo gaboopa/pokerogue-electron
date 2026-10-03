@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cp, mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { cp, mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createBackup, restoreBackup, validateBackup } from "../src/backup.mjs";
@@ -11,7 +12,7 @@ test("save backups validate and restore without installation files", async () =>
   await mkdir(join(userData, "Local Storage"), { recursive: true });
   await writeFile(join(userData, "Local Storage", "save"), "original");
   const backup = await createBackup(userData, join(root, "backups"));
-  await validateBackup(backup);
+  assert.equal((await validateBackup(backup)).schemaVersion, 2);
   await writeFile(join(userData, "Local Storage", "save"), "changed");
   await restoreBackup(userData, backup);
   assert.equal(await readFile(join(userData, "Local Storage", "save"), "utf8"), "original");
@@ -42,6 +43,45 @@ async function assertChangedFixtureRestored(userData) {
     assert.equal(await readFile(join(userData, name, "extra"), "utf8"), `changed extra ${name}`);
   }
   assert.equal(await readFile(join(userData, "untouched", "marker"), "utf8"), "leave me");
+}
+
+async function legacyHashTree(root) {
+  const hash = createHash("sha256");
+  async function visit(dir, prefix = "") {
+    for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+      const rel = join(prefix, entry.name);
+      if (entry.isDirectory()) await visit(join(dir, entry.name), rel);
+      else {
+        hash.update(rel.replaceAll("\\", "/"));
+        hash.update(await readFile(join(dir, entry.name)));
+      }
+    }
+  }
+  await visit(root);
+  return hash.digest("hex");
+}
+
+async function createHistoricalV1Backup(userData, backupRoot) {
+  const backup = join(backupRoot, "historical-v1");
+  const dataRoot = join(backup, "data");
+  await mkdir(dataRoot, { recursive: true });
+  const included = [];
+  for (const name of ["Local Storage", "IndexedDB", "Session Storage"]) {
+    try {
+      await cp(join(userData, name), join(dataRoot, name), { recursive: true, errorOnExist: true });
+      included.push(name);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  const manifest = {
+    schemaVersion: 1,
+    createdAt: "2026-10-01T12:00:00.000Z",
+    included,
+    sha256: await legacyHashTree(dataRoot)
+  };
+  await writeFile(join(backup, "manifest.json"), JSON.stringify(manifest, null, 2));
+  return backup;
 }
 
 function faultableFilesystem(userData, rollbackPath, { failMove, failCopy, failRollback } = {}) {
@@ -131,4 +171,143 @@ test("successful restore changes declared directories and removes recovery copie
   assert.equal(await readFile(join(userData, "Local Storage", "save"), "utf8"), "backup bytes");
   assert.equal(await readFile(join(userData, "IndexedDB", "keep"), "utf8"), "untouched");
   await assert.rejects(readdir(rollbackPath), { code: "ENOENT" });
+});
+
+test("restore rejects an empty inventory hiding backed-up data before target mutation", async () => {
+  const { userData, backup } = await makeFixture();
+  const manifestPath = join(backup, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.included = [];
+  await writeFile(manifestPath, JSON.stringify(manifest));
+
+  await assert.rejects(restoreBackup(userData, backup), /inventory|directory/i);
+  await assertChangedFixtureRestored(userData);
+});
+
+test("valid historical schemaVersion 1 backups restore with their original tree checksum", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pokerogue-backup-v1-"));
+  const userData = join(root, "user");
+  await mkdir(userData, { recursive: true });
+  for (const name of ["Local Storage", "IndexedDB", "Session Storage"]) {
+    await mkdir(join(userData, name));
+    await writeFile(join(userData, name, "save"), `historical ${name}`);
+  }
+  const backup = await createHistoricalV1Backup(userData, join(root, "backups"));
+  const manifest = await validateBackup(backup);
+  assert.equal(manifest.schemaVersion, 1);
+  const corruptedBackup = await createHistoricalV1Backup(userData, join(root, "corrupted-backups"));
+  const legacyFile = join(corruptedBackup, "data", "Local Storage", "save");
+  const legacyBytes = Buffer.from(await readFile(legacyFile));
+  legacyBytes[0] ^= 1;
+  await writeFile(legacyFile, legacyBytes);
+  await assert.rejects(validateBackup(corruptedBackup), /checksum/i);
+  assert.equal(await readFile(join(userData, "Local Storage", "save"), "utf8"), "historical Local Storage");
+  manifest.createdAt = "2026-10-02T12:00:00.000Z";
+  await writeFile(join(backup, "manifest.json"), JSON.stringify(manifest));
+  assert.equal((await validateBackup(backup)).createdAt, manifest.createdAt);
+
+  for (const name of ["Local Storage", "IndexedDB", "Session Storage"]) {
+    await writeFile(join(userData, name, "save"), `changed ${name}`);
+  }
+  await restoreBackup(userData, backup);
+  for (const name of ["Local Storage", "IndexedDB", "Session Storage"]) {
+    assert.equal(await readFile(join(userData, name, "save"), "utf8"), `historical ${name}`);
+  }
+});
+
+test("new backup integrity binds its canonical restore metadata", async () => {
+  const { userData, backup } = await makeFixture();
+  const manifestPath = join(backup, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  assert.equal(manifest.schemaVersion, 2);
+  assert.deepEqual(manifest.included, ["IndexedDB", "Local Storage", "Session Storage"]);
+  manifest.schemaVersion = 1;
+  await writeFile(manifestPath, JSON.stringify(manifest));
+  await assert.rejects(validateBackup(backup), /checksum/i);
+  manifest.schemaVersion = 2;
+  manifest.createdAt = "2026-10-02T12:00:00.000Z";
+  await writeFile(manifestPath, JSON.stringify(manifest));
+
+  await assert.rejects(validateBackup(backup), /checksum/i);
+  await assert.rejects(restoreBackup(userData, backup), /checksum/i);
+  await assertChangedFixtureRestored(userData);
+});
+
+test("same-size backup corruption is rejected before restore changes the target", async () => {
+  const { userData, backup } = await makeFixture();
+  const savedFile = join(backup, "data", "Local Storage", "save");
+  const bytes = await readFile(savedFile);
+  const corrupted = Buffer.from(bytes);
+  corrupted[0] ^= 1;
+  assert.equal(corrupted.length, bytes.length);
+  await writeFile(savedFile, corrupted);
+
+  await assert.rejects(validateBackup(backup), /checksum/i);
+  await assert.rejects(restoreBackup(userData, backup), /checksum/i);
+  await assertChangedFixtureRestored(userData);
+});
+
+test("malformed manifests and mismatched inventories fail before target mutation", async () => {
+  const cases = [
+    ["null manifest", async ({ backup }) => writeFile(join(backup, "manifest.json"), "null")],
+    ["array manifest", async ({ backup }) => writeFile(join(backup, "manifest.json"), "[]")],
+    ["missing manifest field", async ({ backup, manifest }) => {
+      delete manifest.createdAt;
+      await writeFile(join(backup, "manifest.json"), JSON.stringify(manifest));
+    }],
+    ["unexpected manifest field", async ({ backup, manifest }) => {
+      manifest.extra = true;
+      await writeFile(join(backup, "manifest.json"), JSON.stringify(manifest));
+    }],
+    ["duplicate inventory entry", async ({ backup, manifest }) => {
+      manifest.included.push(manifest.included[0]);
+      await writeFile(join(backup, "manifest.json"), JSON.stringify(manifest));
+    }],
+    ["invalid checksum encoding", async ({ backup, manifest }) => {
+      manifest.sha256 = "not-a-sha256";
+      await writeFile(join(backup, "manifest.json"), JSON.stringify(manifest));
+    }],
+    ["missing inventory directory", async ({ backup }) => rm(join(backup, "data", "Session Storage"), { recursive: true })],
+    ["unlisted inventory directory", async ({ backup }) => mkdir(join(backup, "data", "unexpected"))],
+    ["unexpected data file", async ({ backup }) => writeFile(join(backup, "data", "unexpected.txt"), "extra")]
+  ];
+
+  for (const [name, change] of cases) {
+    const { userData, backup } = await makeFixture();
+    const manifest = JSON.parse(await readFile(join(backup, "manifest.json"), "utf8"));
+    await change({ backup, manifest });
+    await assert.rejects(validateBackup(backup), undefined, name);
+    await assert.rejects(restoreBackup(userData, backup), undefined, name);
+    await assertChangedFixtureRestored(userData);
+  }
+});
+
+test("genuine empty snapshots validate and leave target storage untouched", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pokerogue-empty-backup-"));
+  const userData = join(root, "user");
+  await mkdir(userData, { recursive: true });
+  const backup = await createBackup(userData, join(root, "backups"));
+  assert.deepEqual((await validateBackup(backup)).included, []);
+  await mkdir(join(userData, "Local Storage"));
+  await writeFile(join(userData, "Local Storage", "save"), "keep current data");
+
+  await restoreBackup(userData, backup);
+  assert.equal(await readFile(join(userData, "Local Storage", "save"), "utf8"), "keep current data");
+});
+
+test("backup inventory rejects symbolic links", async t => {
+  const { root, backup } = await makeFixture();
+  const outside = join(root, "outside-storage");
+  await mkdir(outside);
+  await writeFile(join(outside, "outside-save"), "outside data");
+  try {
+    await symlink(outside, join(backup, "data", "Local Storage", "outside-link"), "junction");
+  } catch (error) {
+    if (error.code === "EPERM" || error.code === "EACCES") {
+      t.skip(`this Windows environment does not permit symbolic links: ${error.message}`);
+      return;
+    }
+    throw error;
+  }
+  await assert.rejects(validateBackup(backup), /symbolic link|unsupported/i);
 });

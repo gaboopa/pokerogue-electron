@@ -65,6 +65,10 @@ Use the **PokéRogue Offline** application menu to:
 
 The app also retains PokéRogue's save export and import features. Back up important progress before changing computers or removing application data.
 
+New Backups use schema version 2. Their SHA-256 checksum covers the canonical storage inventory, creation time, and a length-framed data tree. Restore rejects missing, duplicate, unexpected, or symbolic-link data entries before changing Save data. An empty snapshot is valid only when its data directory is also empty; restoring it leaves current storage directories alone.
+
+PokeRogue Offline can also restore valid schema version 1 Backups after checking their exact storage inventory and original data-tree checksum. Version 1 checksums did not cover manifest metadata, so fields such as the creation time have weaker integrity than version 2 metadata.
+
 ## Updating
 
 The app never checks silently. Select **PokéRogue Offline → Check for Updates** when you want to check.
