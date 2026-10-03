@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MAXIMUM_FUN_CHEATS, NEUTRAL_CHEATS, applyCheatConfiguration, loadCheatDocument, validateCheatConfig, writeCheatDocument } from "../src/cheats.mjs";
+import { MAXIMUM_FUN_CHEATS, NEUTRAL_CHEATS, applyCheatConfiguration, emptyCheatDocument, loadCheatDocument, validateCheatConfig, writeCheatDocument } from "../src/cheats.mjs";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "pokerogue-cheats-"));
   t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "nested"), { recursive: true });
   return join(root, "nested", "cheats.json");
 }
 
@@ -28,6 +29,69 @@ test("cheat documents write atomically and malformed files fail closed", async t
   const path = await fixture(t); const document = { schemaVersion: 1, config: MAXIMUM_FUN_CHEATS, usage: { everEnabled: true, lastEnabledAt: null, lastAppliedAt: null, applyCount: 3 } };
   await writeCheatDocument(path, document); assert.deepEqual((await loadCheatDocument(path)).config, MAXIMUM_FUN_CHEATS);
   await writeFile(path, "broken-json"); assert.deepEqual((await loadCheatDocument(path)).config, NEUTRAL_CHEATS);
+});
+
+test("malformed cheat document values load fresh neutral documents", async t => {
+  const path = await fixture(t);
+  for (const value of [null, [], false, 42, "cheats", { config: null, usage: [] }]) {
+    await writeFile(path, JSON.stringify(value));
+    const first = await loadCheatDocument(path);
+    const second = await loadCheatDocument(path);
+    assert.deepEqual(first, emptyCheatDocument());
+    assert.deepEqual(second, emptyCheatDocument());
+    assert.notStrictEqual(first.config, second.config);
+    assert.notStrictEqual(first.config.pokeballs, second.config.pokeballs);
+    assert.notStrictEqual(first.usage, second.usage);
+  }
+});
+
+test("valid cheat config and usage fields keep their existing normalization", async t => {
+  const path = await fixture(t);
+  await writeFile(path, JSON.stringify({
+    schemaVersion: 99,
+    config: { enabled: true, minimumMoney: 25, unknown: "ignored" },
+    usage: { everEnabled: true, lastEnabledAt: "2026-08-01T12:00:00.000Z", lastAppliedAt: 7, applyCount: 3, unknown: true },
+  }));
+  const document = await loadCheatDocument(path);
+  assert.equal(document.schemaVersion, 1);
+  assert.equal(document.config.enabled, true);
+  assert.equal(document.config.minimumMoney, 25);
+  assert.equal(Object.hasOwn(document.config, "unknown"), false);
+  assert.deepEqual(document.usage, { everEnabled: true, lastEnabledAt: "2026-08-01T12:00:00.000Z", lastAppliedAt: null, applyCount: 3 });
+});
+
+test("loading and resetting a null cheat document persists neutral state and relaunches", async t => {
+  const path = await fixture(t);
+  await writeFile(path, "null");
+  const calls = [];
+  assert.deepEqual(await loadCheatDocument(path), emptyCheatDocument());
+
+  const result = await applyCheatConfiguration({
+    path,
+    requested: NEUTRAL_CHEATS,
+    confirm: async () => { calls.push("confirm"); return true; },
+    backup: async () => calls.push("backup"),
+    relaunch: async () => calls.push("relaunch"),
+  });
+
+  assert.equal(result.applied, true);
+  assert.deepEqual(calls, ["relaunch"]);
+  assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
+    schemaVersion: 1,
+    config: NEUTRAL_CHEATS,
+    usage: { everEnabled: false, lastEnabledAt: null, lastAppliedAt: result.document.usage.lastAppliedAt, applyCount: 1 },
+  });
+});
+
+test("missing and syntax-invalid documents recover while other read errors propagate", async t => {
+  const path = await fixture(t);
+  assert.deepEqual(await loadCheatDocument(path), emptyCheatDocument());
+  await writeFile(path, "broken-json");
+  assert.deepEqual(await loadCheatDocument(path), emptyCheatDocument());
+
+  await rm(path);
+  await mkdir(path, { recursive: true });
+  await assert.rejects(loadCheatDocument(path), error => error.code !== "ENOENT" && !(error instanceof SyntaxError));
 });
 
 test("enabled changes confirm, back up, persist metadata, then relaunch", async t => {

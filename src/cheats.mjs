@@ -63,6 +63,7 @@ export function emptyCheatDocument() {
 export async function loadCheatDocument(path) {
   try {
     const stored = JSON.parse(await readFile(path, "utf8"));
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return emptyCheatDocument();
     const base = emptyCheatDocument();
     return {
       schemaVersion: CHEAT_SCHEMA_VERSION,
