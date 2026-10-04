@@ -30,14 +30,16 @@ const watched = changed.split(/\r?\n/).filter(line => /timed-events|egg|gacha|sp
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const backupBranch = `backup/pre-upstream-${stamp}`;
 const updateBranch = `updates/upstream-${stamp}`;
-const reportDir = join(wrapperRoot, "staging", "upstream-reports");
+const reportDir = join(wrapperRoot, ".local-build", "upstream-reports");
 await mkdir(reportDir, { recursive: true });
-await writeFile(join(reportDir, `${stamp}.md`), [
+const reportPath = join(reportDir, `${stamp}.md`);
+await writeFile(reportPath, [
   "# Upstream synchronization report", "", `- Previous game revision: \`${currentRevision}\``,
   `- Upstream revision: \`${upstreamRevision}\``, `- Original branch: \`${currentBranch}\``, "",
   "## Watched changes", "", watched.length ? watched.map(line => `- \`${line}\``).join("\n") : "No watched paths changed.",
   "", "## All changes", "", "```text", changed, "```", "",
 ].join("\n"));
+console.log(`Synchronization report saved: ${reportPath}`);
 
 await git(["branch", backupBranch, currentRevision]);
 await git(["switch", "-c", updateBranch]);

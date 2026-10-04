@@ -54,7 +54,7 @@ npm install
 5. updates the referenced submodules;
 6. runs typechecking, tests, the app build, and wrapper tests.
 
-The command never pushes, tags, publishes, or merges the update branch into the release branch. Resolve any merge conflict on the generated update branch, review `staging/upstream-reports`, and repeat validation before accepting it.
+The command never pushes, tags, publishes, or merges the update branch into the release branch. It saves each report under `.local-build/upstream-reports/` and prints the report's absolute path. Reports remain readable when the staging directory is recreated for the app build. Resolve any merge conflict on the generated update branch, review the saved report, and repeat validation before accepting it.
 
 Manual validation commands on Windows:
 
