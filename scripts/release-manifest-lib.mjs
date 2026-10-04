@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import fs from "node:fs";
+import { stat } from "node:fs/promises";
+import { Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { assertAllowedUrl, assertDistributableArtifactName, assertSourceRevisions, assertValidArtifact, assertValidRelease } from "../src/release-contract.mjs";
 
 export { assertAllowedUrl, assertDistributableArtifactName };
@@ -13,14 +16,19 @@ function artifactKey(artifact) {
 }
 
 export async function createArtifactRecord({ artifactPath, downloadUrl, platform, arch }) {
-  const [bytes, content] = await Promise.all([stat(artifactPath), readFile(artifactPath)]);
+  const bytes = await stat(artifactPath);
   if (!bytes.isFile() || bytes.size <= 0) throw new Error(`Release artifact is not a non-empty file: ${artifactPath}`);
+  const hash = createHash("sha256");
+  await pipeline(
+    fs.createReadStream(artifactPath),
+    new Writable({ write(chunk, _encoding, callback) { hash.update(chunk); callback(); } }),
+  );
   const record = {
     platform,
     arch,
     fileName: assertDistributableArtifactName(artifactPath),
     size: bytes.size,
-    sha256: createHash("sha256").update(content).digest("hex"),
+    sha256: hash.digest("hex"),
     downloadUrl,
   };
   assertValidArtifact(record);

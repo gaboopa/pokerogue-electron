@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { PassThrough } from "node:stream";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createMenuTemplate } from "../src/menu.mjs";
@@ -107,6 +110,68 @@ test("release manifests preserve Windows while adding macOS", async () => {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("artifact records preserve file metadata, SHA-256, coordinates, and URL validation", async t => {
+  const root = await mkdtemp(join(tmpdir(), "pokerogue-artifact-record-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const artifactPath = join(root, "PokeRogue-Offline-0.1.4-windows-x64.exe");
+  const content = Buffer.from("known release artifact bytes");
+  const downloadUrl = "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.4/windows.exe";
+  await writeFile(artifactPath, content);
+
+  const record = await createArtifactRecord({ artifactPath, downloadUrl, platform: "windows", arch: "x64" });
+  assert.deepEqual(record, {
+    platform: "windows",
+    arch: "x64",
+    fileName: "PokeRogue-Offline-0.1.4-windows-x64.exe",
+    size: content.length,
+    sha256: createHash("sha256").update(content).digest("hex"),
+    downloadUrl,
+  });
+  await assert.rejects(
+    createArtifactRecord({ artifactPath, downloadUrl: "http://github.com/gaboopa/pokerogue-electron/windows.exe", platform: "windows", arch: "x64" }),
+    /Update URL is not allowed/,
+  );
+});
+
+test("artifact records reject empty, non-file, and unreadable paths", async t => {
+  const root = await mkdtemp(join(tmpdir(), "pokerogue-artifact-errors-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const emptyPath = join(root, "PokeRogue-Offline-0.1.4-windows-x64.exe");
+  const directoryPath = join(root, "PokeRogue-Offline-0.1.4-macos-arm64.dmg");
+  const missingPath = join(root, "PokeRogue-Offline-0.1.4-missing.exe");
+  await writeFile(emptyPath, "");
+  await fs.promises.mkdir(directoryPath);
+  const options = { downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.4/artifact", platform: "windows", arch: "x64" };
+
+  await assert.rejects(createArtifactRecord({ ...options, artifactPath: emptyPath }), /not a non-empty file/);
+  await assert.rejects(createArtifactRecord({ ...options, artifactPath: directoryPath }));
+  await assert.rejects(createArtifactRecord({ ...options, artifactPath: missingPath }), error => error.code === "ENOENT");
+});
+
+test("artifact hashing closes its stream after a read error", async t => {
+  const root = await mkdtemp(join(tmpdir(), "pokerogue-artifact-stream-error-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const artifactPath = join(root, "PokeRogue-Offline-0.1.4-windows-x64.exe");
+  await writeFile(artifactPath, "stream failure fixture");
+  let stream;
+  t.mock.method(fs, "createReadStream", () => {
+    stream = new PassThrough();
+    queueMicrotask(() => stream.destroy(new Error("fixture read failure")));
+    return stream;
+  });
+
+  await assert.rejects(
+    createArtifactRecord({
+      artifactPath,
+      downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.4/windows.exe",
+      platform: "windows",
+      arch: "x64",
+    }),
+    /fixture read failure/,
+  );
+  assert.equal(stream.closed, true);
 });
 
 test("manifest artifact merges preserve policy, ordering, cloning, and input identity across 24 cases", () => {
