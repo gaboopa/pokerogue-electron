@@ -3,7 +3,7 @@
 Goal: complete all updates in tasks/plan.md. The user authorized Luna dispatch and selected validation-only GitHub Actions for macOS builds.
 
 Primary integration branch: codex/offline-review-updates.
-Latest combined verification: npm test, 104 passed, 0 failed, 0 skipped on Windows x64 with Node v24.18.0 and Electron 42.7.1.
+Latest combined verification: npm test, 119 passed, 0 failed, 0 skipped on Windows x64 with Node v24.18.0 and Electron 42.11.10, after all nine optional tasks integrated.
 This is not native release clearance.
 
 | Task | Current evidence |
@@ -17,13 +17,16 @@ This is not native release clearance.
 | R07 #14 | Reviewed, integrated d5849a2, Windows spaced-path fixture verified; issue closed |
 | R08 #15 | Reviewed, old-location mutation detected, integrated e07fd6c; actual staging and failure branches tested; issue closed |
 | R09 #16 | Reviewed, shape-guard mutation detected, integrated 25b763a, issue closed |
-| R10 #17 | Claimed/dispatched to durable_reports_resume in dependency-retest-r10; own clean install and advisory-backed lock update in progress |
+| R10 #17 | Integrated be26b9c/8c29e6f; fresh primary install and first suite passed; one explicit build-only advisory deferral; issue closed |
 | R11 #18 | Research reviewed and integrated c8fd131/ae6e724; eight-round exact-source restoration passed, general live capture remains inconclusive; investigation issue closed, corrective #31-#37 keep release blocked |
 | R12 #19 | Windows native release validation pending; V01 #30 preparation reviewed and integrated 1b09aef/6661b0e, support issue closed |
 | R13 #20 | Validation-only workflow prepared and reviewed; CI execution and hands-on Mac QA pending |
-| S01, S02a, S02b, S03, S04, S05, S06a, S06b, P01 | Approved by all-updates goal; wait for R10 |
+| R14 #31, R15 #32 | Windows cold-capture prototype and atomic publication reviewed and integrated; issues closed |
+| R16 #33 | Candidate ebda504 under review; overlapping resume can overwrite a newer token, correction required before integration |
+| R17-R20 #34-#37 | Production cold worker, four continuations and packaged proof remain gated by R16 and their dependent tickets |
+| S01, S02a, S02b, S03, S04, S05, S06a, S06b, P01 | All nine integrated and issues #21-#29 closed; combined 119/119 passing |
 
-Current Luna assignments: startup_recovery_resume handles R15 #32 in atomic-backup-r15; durable_reports_resume handles R10 #17 in dependency-retest-r10 with its own installed dependencies; backup_consistency_resume handles R14 #31 in cold-capture-proof-r14. Each assignment uses its named isolated worktree and branch. Read current agent/tool status and Git state before assuming a worker remains live.
+Current Luna assignments: backup_consistency_resume owns R16 #33 in cold-capture-proof-r14; durable_reports_resume performs read-only peer review of R16 from dependency-retest-r10; startup_recovery_resume prepares a read-only R17 handoff from atomic-backup-r15 without implementing the blocked ticket. Each assignment uses its named isolated worktree. Read current agent/tool status and Git state before assuming a worker remains live.
 
 Review evidence: restore/download/keyboard/cheat guard mutations failed their regression suites and original bytes were restored. Inventory corruption rejection was independently exercised through the worker's disposable mutated module. Combined tests run on integrated code.
 
@@ -62,3 +65,7 @@ Current Luna ownership: R16 #33 in codex/backup-intent-r16 at the reused cold-ca
 Hashing/keymap checkpoint, 2026-10-04: P01 integrated as fae969d; [#29 is closed](https://github.com/gaboopa/pokerogue-electron/issues/29#issuecomment-5982860481). The exact 618,000,000-byte disposable fixture and separate-process baseline/candidate runs returned identical hashes and metadata. Median peak RSS changed from 657,248 KiB to 88,204 KiB, 86.58% lower; median record time increased from 448.62 ms to 724.50 ms, 61.5% longer. Raw three-run samples and the exact 0c42c02 baseline are retained in ignored worker evidence; fixture removed. Stream failure tests verify closure before rejection. S06b integrated as 227a66d; [#28 is closed](https://github.com/gaboopa/pokerogue-electron/issues/28#issuecomment-5982860811). Disposable file/error/race checks preserve existing bytes, defaults and exclusive creation. Root combined npm test passed 119/119 with zero skips on Electron 42.11.10.
 
 The same Luna sessions now own S04 #25 at codex/shared-packaging-s04 and S02a #22 at codex/manifest-imports-s02a, both based on 227a66d; R16 #33 remains active. Forwarding compatibility uses the documented npm/CLI application contract, private package and absence of a library/export contract as evidence that these imports are internal. This is an inference about supported interfaces, not a claim that unknown outside scripts do not exist or that the user answered the pending question. Preserve a path if new evidence identifies a supported consumer. S02a keeps the streaming/merge policies and explicit validation options. Native packaged/CI/hands-on gates remain open; no release is published.
+
+Optional completion checkpoint, 2026-10-04: S04 integrated as 6219d30, sharing only the identical development NSIS settings; #25 is closed. S02a integrated as a0e7425 and S02b as 07f4cbf, importing release validation/guards directly from their owning module with explicit options preserved. Issues #22/#23 are closed after the primary combined npm test passed 119/119, zero failures/skips on Electron 42.11.10. All nine optional issues #21-#29 are now closed. The supported forwarding-interface decision remains the documented private application npm/CLI contract; the unanswered outside-consumer question is not treated as a user reply.
+
+R16 review checkpoint: ebda504 remains outside the primary branch. The independent peer reproduced an overlapping resume/failed transition and a stale delayed Update resume replacing a fresh manual token. Token/revision checks before asynchronous readiness did not protect final journal replacement. The writer must correct shared transaction ownership for create/transition/resume/acknowledgement and preserve safe interrupted recovery before R16 is accepted. Production worker #34 is still blocked; its read-only preparation does not bypass that edge. Native validation workflows have not been pushed/run and no release is published.
