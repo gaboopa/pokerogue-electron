@@ -12,7 +12,7 @@
     "stage:game": "node scripts/build-game.mjs --stage-only",
     "run:packaged": "electron .",
     "sync:upstream": "node scripts/sync-upstream.mjs",
-    "test": "node --test test/*.test.mjs",
+    "test": "electron --version && node --test test/*.test.mjs",
     "package:win": "npm run build:game && node scripts/package-win.mjs release",
     "package:win:smoke": "node scripts/package-win.mjs smoke",
     "package:win:staged": "node scripts/package-win.mjs staged",
