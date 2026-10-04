@@ -71,10 +71,10 @@ A reusable assignment prompt:
 
 ### Phase 5, native release validation
 
-- [R12 #19, Validate the corrected Windows distributable before release](https://github.com/gaboopa/pokerogue-electron/issues/19). ready-for-human; blockers #17, #18.
+- [R12 #19, Validate the corrected Windows distributable before release](https://github.com/gaboopa/pokerogue-electron/issues/19). ready-for-human; blockers #17, #18, #30.
 - [R13 #20, Validate native macOS behavior before release](https://github.com/gaboopa/pokerogue-electron/issues/20). ready-for-human; blockers #17, #18.
 
-- [V01 #30, Prepare isolated Windows release validation without publishing](https://github.com/gaboopa/pokerogue-electron/issues/30). ready-for-agent; preparation blockers none. This support task was split from R12 on 2026-10-04; executing the workflow waits for R10/R11.
+- [V01 #30, Prepare isolated Windows release validation without publishing](https://github.com/gaboopa/pokerogue-electron/issues/30). completed; preparation blockers none. This support task was split from R12 on 2026-10-04; executing the workflow waits for R10/R11.
 
 ### Optional queue
 
@@ -141,8 +141,6 @@ Recommended dispatch batches: R01/R02/R03, then R04 plus R07/R09, then R05/R08/R
 - [ ] Artifact hashes, source revisions, Release contract validation, and local/public macOS policy are recorded.
 - [ ] Every required ticket and any R11 corrective follow-up is complete.
 - [ ] A human reviews the evidence before publishing a release.
-
-- [V01 #30, Prepare isolated Windows release validation without publishing](https://github.com/gaboopa/pokerogue-electron/issues/30). ready-for-agent; preparation blockers none. This support task was split from R12 on 2026-10-04; executing the workflow waits for R10/R11.
 
 ### Optional queue checkpoints
 
