@@ -3,7 +3,7 @@
 Goal: complete all updates in tasks/plan.md. The user authorized Luna dispatch and selected validation-only GitHub Actions for macOS builds.
 
 Primary integration branch: codex/offline-review-updates.
-Latest combined verification: npm test, 119 passed, 0 failed, 0 skipped on Windows x64 with Node v24.18.0 and Electron 42.11.10, after all nine optional tasks integrated.
+Latest combined verification: npm test, 131 passed, 0 failed, 0 skipped on Windows x64 with Node v24.18.0 and Electron 42.11.10, after the strict journal and its transaction correction integrated. Subsequent test-only bounded cleanup passed the focused 12/12 suite; production source is unchanged.
 This is not native release clearance.
 
 | Task | Current evidence |
@@ -22,11 +22,11 @@ This is not native release clearance.
 | R12 #19 | Windows native release validation pending; V01 #30 preparation reviewed and integrated 1b09aef/6661b0e, support issue closed |
 | R13 #20 | Validation-only workflow prepared and reviewed; CI execution and hands-on Mac QA pending |
 | R14 #31, R15 #32 | Windows cold-capture prototype and atomic publication reviewed and integrated; issues closed |
-| R16 #33 | Candidate ebda504 under review; overlapping resume can overwrite a newer token, correction required before integration |
+| R16 #33 | Integrated 8bdff68/6ba9ab6/5d66719; independent stale-token reproduction rejected; cross-process ownership and explicit dead-owner recovery verified; issue closed |
 | R17-R20 #34-#37 | Production cold worker, four continuations and packaged proof remain gated by R16 and their dependent tickets |
 | S01, S02a, S02b, S03, S04, S05, S06a, S06b, P01 | All nine integrated and issues #21-#29 closed; combined 119/119 passing |
 
-Current Luna assignments: backup_consistency_resume owns R16 #33 in cold-capture-proof-r14; durable_reports_resume performs read-only peer review of R16 from dependency-retest-r10; startup_recovery_resume prepares a read-only R17 handoff from atomic-backup-r15 without implementing the blocked ticket. Each assignment uses its named isolated worktree. Read current agent/tool status and Git state before assuming a worker remains live.
+Dispatch policy after the usage-limit interruption: one active Luna worker, with focused verification and primary combined checks at integration checkpoints. R16 is complete. R17 #34 is the next unblocked slice; other Luna sessions remain stopped. Read current agent/tool status and Git state before assuming a worker remains live.
 
 Review evidence: restore/download/keyboard/cheat guard mutations failed their regression suites and original bytes were restored. Inventory corruption rejection was independently exercised through the worker's disposable mutated module. Combined tests run on integrated code.
 
@@ -69,3 +69,5 @@ The same Luna sessions now own S04 #25 at codex/shared-packaging-s04 and S02a #2
 Optional completion checkpoint, 2026-10-04: S04 integrated as 6219d30, sharing only the identical development NSIS settings; #25 is closed. S02a integrated as a0e7425 and S02b as 07f4cbf, importing release validation/guards directly from their owning module with explicit options preserved. Issues #22/#23 are closed after the primary combined npm test passed 119/119, zero failures/skips on Electron 42.11.10. All nine optional issues #21-#29 are now closed. The supported forwarding-interface decision remains the documented private application npm/CLI contract; the unanswered outside-consumer question is not treated as a user reply.
 
 R16 review checkpoint: ebda504 remains outside the primary branch. The independent peer reproduced an overlapping resume/failed transition and a stale delayed Update resume replacing a fresh manual token. Token/revision checks before asynchronous readiness did not protect final journal replacement. The writer must correct shared transaction ownership for create/transition/resume/acknowledgement and preserve safe interrupted recovery before R16 is accepted. Production worker #34 is still blocked; its read-only preparation does not bypass that edge. Native validation workflows have not been pushed/run and no release is published.
+
+R16 completion checkpoint, 2026-10-04: integrated strict coordinator 8bdff68 and cross-process transaction correction 6ba9ab6, followed by test-only bounded cleanup 5d66719. The original independent 128 MiB old-resume/new-token reproduction now rejects the stale resume and leaves the fresh token requested at revision 0. Atomic hard-link publication exposes only complete fsynced owner metadata; explicit fresh-primary recovery refuses live/ambiguous owners and checks the same lock nonce. Root combined suite passed 131/131 with zero skips; final focused suite passed 12/12 after the test-only cleanup. #33 is closed. #34 now has zero open native blockers. One Luna worker will own the next slice; no other sessions are resumed. Native packaged/CI/hands-on gates remain open, with no release publication.
