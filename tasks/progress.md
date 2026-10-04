@@ -3,7 +3,7 @@
 Goal: complete all updates in tasks/plan.md. The user authorized Luna dispatch and selected validation-only GitHub Actions for macOS builds.
 
 Primary integration branch: codex/offline-review-updates.
-Latest combined verification: npm test, 97 passed, 0 failed, 0 skipped on Windows x64 with Node v24.18.0 and Electron 42.7.1.
+Latest combined verification: npm test, 104 passed, 0 failed, 0 skipped on Windows x64 with Node v24.18.0 and Electron 42.7.1.
 This is not native release clearance.
 
 | Task | Current evidence |
@@ -13,17 +13,17 @@ This is not native release clearance.
 | R03 #10 | Reviewed, numeric-keyCode mutation detected, integrated ae2d50b and 35a0173; portable native harness; issue closed |
 | R04 #11 | Reviewed, corruption mutation detected, integrated cc45657; v1 compatibility and v2 framed integrity tested; issue closed |
 | R05 #12 | Reviewed, startup-ready mutation detected, integrated b620237, 8816019, ae1ee0a, 3f4a0d7; fail-closed recovery and two-launch no-replay tested; issue closed |
-| R06 #13 | Claimed and dispatched to startup_recovery_resume in window-lifecycle-r06 after R05 integration |
+| R06 #13 | Reviewed, all-window gate mutation detected, integrated 98136ee; instance-bound callbacks and delayed keymap race verified; issue closed |
 | R07 #14 | Reviewed, integrated d5849a2, Windows spaced-path fixture verified; issue closed |
 | R08 #15 | Reviewed, old-location mutation detected, integrated e07fd6c; actual staging and failure branches tested; issue closed |
 | R09 #16 | Reviewed, shape-guard mutation detected, integrated 25b763a, issue closed |
-| R10 #17 | Dependency review waits for remaining correctness fixes |
-| R11 #18 | Native eight-round probe reviewed and integrated c8fd131; exact staged-source restoration passed, general live capture remains inconclusive; capture follow-up design in progress, issue remains open |
+| R10 #17 | Claimed/dispatched to durable_reports_resume in dependency-retest-r10; own clean install and advisory-backed lock update in progress |
+| R11 #18 | Research reviewed and integrated c8fd131/ae6e724; eight-round exact-source restoration passed, general live capture remains inconclusive; investigation issue closed, corrective #31-#37 keep release blocked |
 | R12 #19 | Windows native release validation pending; V01 #30 preparation reviewed and integrated 1b09aef/6661b0e, support issue closed |
 | R13 #20 | Validation-only workflow prepared and reviewed; CI execution and hands-on Mac QA pending |
 | S01, S02a, S02b, S03, S04, S05, S06a, S06b, P01 | Approved by all-updates goal; wait for R10 |
 
-Current Luna assignments: startup_recovery_resume handles R06 in window-lifecycle-r06; durable_reports_resume completed V01 #30; backup_consistency_resume is investigating the bounded capture follow-up to R11. Each assignment uses its named isolated worktree and branch. Read current agent/tool status and Git state before assuming a worker remains live.
+Current Luna assignments: startup_recovery_resume handles R15 #32 in atomic-backup-r15; durable_reports_resume handles R10 #17 in dependency-retest-r10 with its own installed dependencies; backup_consistency_resume handles R14 #31 in cold-capture-proof-r14. Each assignment uses its named isolated worktree and branch. Read current agent/tool status and Git state before assuming a worker remains live.
 
 Review evidence: restore/download/keyboard/cheat guard mutations failed their regression suites and original bytes were restored. Inventory corruption rejection was independently exercised through the worker's disposable mutated module. Combined tests run on integrated code.
 
@@ -40,3 +40,5 @@ R11 diagnostic interruption: an incorrectly escaped generated temporary launcher
 Checkpoint, 2026-10-04: corrected native storage probe passed eight capture/restore rounds without the temporary-launcher error. Its report distinguishes staged source values from filesystem consistency and does not clear release gates. Independent Windows workflow preparation review parsed all seven PowerShell run blocks, the installer helper, and embedded manifest JavaScript; local invocation refused before accessing installations. No installer ran on this machine.
 
 The fresh staged-game probe imported the actual main module, used an isolated profile below .local-build/luna-plan/staged-profiles, loaded app://game/index.html, and reached the visible welcome dialogue in a captured frame. It exited 0 with one game window and no main-frame load failures. This establishes staged startup only; installed offline gameplay remains pending.
+
+Cold-capture correction, 2026-10-04: GitHub #31-#37 are published with native dependency edges. The root independently checked the chain and #37 blocking both #19/#20; existing #30 support edge is retained. First prove graceful process exit and source ownership while the worker runtime switches profile; do not implement the worker if that proof fails. Atomic publication can run independently. The remaining slices add a strict one-shot journal, same-executable worker, manual/Update and restore/cheat continuations, then actual packaged validation. All three storage directories remain in scope; copied Session Storage does not promise hydration into a different browsing context. Source data and captured-directory scope are not narrowed to make the gate pass.
