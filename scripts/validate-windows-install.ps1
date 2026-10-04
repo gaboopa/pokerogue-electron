@@ -58,8 +58,10 @@ function Get-AppRegistrations {
   return $registrations
 }
 
-function Invoke-SilentInstaller([string]$Path) {
-  $process = Start-Process -FilePath $Path -ArgumentList @('/S') -PassThru
+function Invoke-SilentInstaller([string]$Path, [string]$AllowedRoot) {
+  $installerPath = Get-FullPathWithin $Path $AllowedRoot
+  if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) { throw "Installer is missing: $installerPath" }
+  $process = Start-Process -FilePath $installerPath -ArgumentList @('/S') -WindowStyle Hidden -PassThru
   if (-not $process.WaitForExit(900000)) {
     Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     throw "Silent installer timed out: $Path"
@@ -90,13 +92,15 @@ function Assert-FileHash([string]$Path, [string]$ExpectedHash, [long]$ExpectedSi
 }
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$newInstaller = Get-FullPathWithin (Join-Path $repoRoot $NewInstallerPath) (Join-Path $repoRoot 'release')
-$releaseManifestPath = Get-FullPathWithin (Join-Path $repoRoot $ReleaseManifestPath) (Join-Path $repoRoot 'release')
+$releaseRoot = Get-FullPathWithin (Join-Path $repoRoot 'release') $repoRoot
+$newInstaller = Get-FullPathWithin (Join-Path $repoRoot $NewInstallerPath) $releaseRoot
+$releaseManifestPath = Get-FullPathWithin (Join-Path $repoRoot $ReleaseManifestPath) $releaseRoot
 if (-not (Test-Path -LiteralPath $newInstaller -PathType Leaf)) { throw "New installer is missing: $newInstaller" }
 if (-not (Test-Path -LiteralPath $releaseManifestPath -PathType Leaf)) { throw "Release manifest is missing: $releaseManifestPath" }
 
-$appDataPath = Join-Path $env:APPDATA $productName
-$defaultInstallPath = Join-Path $env:LOCALAPPDATA 'Programs\PokeRogue Offline'
+$appDataPath = Get-FullPathWithin (Join-Path $env:APPDATA $productName) $env:APPDATA
+$installProgramsRoot = Get-FullPathWithin (Join-Path $env:LOCALAPPDATA 'Programs') $env:LOCALAPPDATA
+$defaultInstallPath = Get-FullPathWithin (Join-Path $installProgramsRoot 'PokeRogue Offline') $installProgramsRoot
 if (@(Get-AppRegistrations).Count -ne 0) { throw 'A PokeRogue Offline registration already exists; refusing to touch existing installation state.' }
 foreach ($path in @($appDataPath, $defaultInstallPath)) {
   if (Test-Path -LiteralPath $path) { throw "PokeRogue Offline data or installation already exists at $path; refusing to touch it." }
@@ -155,10 +159,10 @@ try {
   $evidence.previousRelease.installedInstaller = [ordered]@{ fileName = [System.IO.Path]::GetFileName($oldInstallerPath); size = $oldInstallerEvidence.size; sha256 = $oldInstallerEvidence.sha256 }
   $evidence.checks.Add('Verified previous installer size and SHA-256 before execution.')
 
-  Invoke-SilentInstaller $oldInstallerPath
+  Invoke-SilentInstaller $oldInstallerPath $auditRoot
   $initialRegistration = Get-Registration
   if ($initialRegistration.DisplayVersion -cne $previousVersion) { throw "Expected installed version $previousVersion, found $($initialRegistration.DisplayVersion)." }
-  $uninstallerPath = Join-Path $initialRegistration.InstallLocation 'Uninstall PokeRogue Offline.exe'
+  $uninstallerPath = Get-FullPathWithin (Join-Path $initialRegistration.InstallLocation 'Uninstall PokeRogue Offline.exe') $initialRegistration.InstallLocation
   if (-not (Test-Path -LiteralPath $uninstallerPath -PathType Leaf)) { throw "Expected per-user uninstaller is missing: $uninstallerPath" }
   $evidence.registrationIdentity = [ordered]@{ registryPath = $initialRegistration.RegistryPath; keyName = $initialRegistration.KeyName; installLocation = $initialRegistration.InstallLocation; previousDisplayVersion = $initialRegistration.DisplayVersion }
   $evidence.checks.Add('Installed v0.1.3 silently and confirmed one per-user registration with the expected identity.')
@@ -193,7 +197,7 @@ try {
   $evidence.releaseManifestSha256 = (Get-FileHash -LiteralPath $releaseManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
   $evidence.checks.Add('Verified the new installer bytes against the generated Windows x64 release manifest before execution.')
 
-  Invoke-SilentInstaller $newInstaller
+  Invoke-SilentInstaller $newInstaller $releaseRoot
   $upgradedRegistration = Get-Registration
   if ($upgradedRegistration.DisplayVersion -cne $newPackageVersion) { throw "Expected upgraded version $newPackageVersion, found $($upgradedRegistration.DisplayVersion)." }
   if ($upgradedRegistration.RegistryPath -cne $initialRegistration.RegistryPath -or $upgradedRegistration.KeyName -cne $initialRegistration.KeyName -or $upgradedRegistration.InstallLocation -cne $initialRegistration.InstallLocation) {
@@ -208,7 +212,7 @@ try {
   $evidence.registrationIdentity.upgradedDisplayVersion = $upgradedRegistration.DisplayVersion
   $evidence.checks.Add('Upgraded silently, retained one unchanged per-user registration identity, and preserved every sentinel/configuration file byte-for-byte.')
 
-  Invoke-SilentInstaller $uninstallerPath
+  Invoke-SilentInstaller $uninstallerPath $initialRegistration.InstallLocation
   $uninstallCompleted = $true
   if (@(Get-AppRegistrations).Count -ne 0) { throw 'The app registration remains after silent uninstall.' }
   if (Test-Path -LiteralPath $uninstallerPath) { throw 'The app uninstaller remains after silent uninstall.' }
@@ -227,14 +231,24 @@ try {
 } finally {
   if (-not $uninstallCompleted) {
     try {
-      $remaining = @(Get-AppRegistrations)
-      if ($remaining.Count -eq 1 -and $remaining[0].RegistryPath.StartsWith('HKEY_CURRENT_USER\', [System.StringComparison]::OrdinalIgnoreCase) -and $remaining[0].InstallLocation) {
-        $remainingInstaller = Join-Path $remaining[0].InstallLocation 'Uninstall PokeRogue Offline.exe'
-        if (Test-Path -LiteralPath $remainingInstaller -PathType Leaf) {
-          Invoke-SilentInstaller $remainingInstaller
-          $evidence.cleanup = 'removed partial installation with its per-user uninstaller; user data was retained'
+      if ($null -eq $initialRegistration) {
+        $evidence.cleanup = 'no owned installation identity was recorded; ephemeral runner will be discarded'
+      } else {
+        $remaining = @(Get-AppRegistrations)
+        if ($remaining.Count -eq 0) {
+          $evidence.cleanup = 'no installation registration remained'
         } else {
-          $evidence.cleanup = 'partial registration found without expected uninstaller; ephemeral runner will be discarded'
+          $remainingRegistration = Get-Registration
+          if ($remainingRegistration.RegistryPath -cne $initialRegistration.RegistryPath -or $remainingRegistration.KeyName -cne $initialRegistration.KeyName -or $remainingRegistration.InstallLocation -cne $initialRegistration.InstallLocation) {
+            throw 'Remaining registration does not match the recorded installation identity and location; refusing cleanup launch.'
+          }
+          $remainingInstaller = Get-FullPathWithin (Join-Path $remainingRegistration.InstallLocation 'Uninstall PokeRogue Offline.exe') $remainingRegistration.InstallLocation
+          if (Test-Path -LiteralPath $remainingInstaller -PathType Leaf) {
+            Invoke-SilentInstaller $remainingInstaller $remainingRegistration.InstallLocation
+            $evidence.cleanup = 'removed the recorded partial installation with its contained per-user uninstaller; user data was retained'
+          } else {
+            $evidence.cleanup = 'recorded installation remains without its expected uninstaller; ephemeral runner will be discarded'
+          }
         }
       }
     } catch {
