@@ -21,13 +21,25 @@ function collect() {
 }
 
 async function run(action) {
-  document.body.classList.add("busy"); byId("message").textContent = "";
-  try { const result = await action(); if (result?.config) render(result.config); if (result?.reason === "cancelled") byId("message").textContent = "No changes were applied."; }
-  catch (error) { byId("message").textContent = error.message; }
-  finally { document.body.classList.remove("busy"); }
+  document.body.classList.add("busy");
+  byId("message").textContent = "";
+
+  try {
+    const result = await action();
+    if (result?.config) render(result.config);
+    if (result?.reason === "cancelled") byId("message").textContent = "No changes were applied.";
+  } catch (error) {
+    byId("message").textContent = error.message;
+  } finally {
+    document.body.classList.remove("busy");
+  }
 }
 
-byId("maximum").addEventListener("click", () => run(async () => bridge.load().then(value => (render(value.maximum), value.maximum))));
+byId("maximum").addEventListener("click", () => run(async () => {
+  const value = await bridge.load();
+  render(value.maximum);
+  return value.maximum;
+}));
 byId("reset").addEventListener("click", () => run(() => bridge.reset()));
 byId("apply").addEventListener("click", () => run(() => bridge.applyConfig(collect())));
 byId("cancel").addEventListener("click", () => bridge.close());
