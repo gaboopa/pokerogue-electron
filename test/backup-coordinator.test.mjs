@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,6 +12,7 @@ import {
   getCapturePaths,
   prepareResumeIntent,
   readIntent,
+  recoverStaleIntentLock,
   transitionIntent,
 } from "../src/backup-coordinator.mjs";
 import { createBackup } from "../src/backup.mjs";
@@ -63,6 +65,28 @@ function updatePayload(bytes, overrides = {}) {
       artifacts: [artifact],
     },
   };
+}
+
+function waitForChildLine(child, expectedLine) {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    const timeout = setTimeout(() => reject(new Error(`Child did not report ${expectedLine}; output: ${output}`)), 5000);
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", chunk => {
+      output += chunk;
+      if (output.split(/\r?\n/).includes(expectedLine)) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+    child.once("error", error => { clearTimeout(timeout); reject(error); });
+    child.once("close", code => {
+      if (!output.split(/\r?\n/).includes(expectedLine)) {
+        clearTimeout(timeout);
+        reject(new Error(`Child exited ${code} before reporting ${expectedLine}; output: ${output}`));
+      }
+    });
+  });
 }
 
 async function captureIntent(userData, intent) {
@@ -188,6 +212,75 @@ test("a vetoed cancelled intent keeps new requests busy until startup acknowledg
     }), /token|mismatch/i);
     await assert.rejects(cleanupCaptureStage({ userData, expectedToken: state.token }), /token|mismatch/i);
     assert.equal(await readFile(join(nextStage, "keep.txt"), "utf8"), "new intent owns this");
+  });
+});
+
+test("an old in-flight Update resume cannot replace a newer intent after terminal acknowledgement", async () => {
+  await withProfile(async ({ userData }) => {
+    const bytes = Buffer.alloc(128 * 1024 * 1024, 0x5a);
+    const old = await createIntent({ userData, operation: "update", payload: updatePayload(bytes) });
+    const paths = getCapturePaths(userData, old.token);
+    await mkdir(paths.updateRoot, { recursive: true });
+    await writeFile(join(paths.updateRoot, "windows.exe"), bytes);
+    const captured = await captureIntent(userData, old);
+    const oldResume = prepareResumeIntent({ userData, expectedToken: old.token, expectedRevision: captured.revision });
+
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const failed = await transitionIntent({
+      userData,
+      expectedToken: old.token,
+      expectedRevision: captured.revision,
+      nextState: "failed",
+      failure: { code: "cancelled", message: "The old continuation was invalidated." },
+    });
+    await clearTerminalIntent({ userData, expectedToken: failed.token, startupConfirmed: true });
+    const fresh = await createIntent({ userData, operation: "manual", payload: {} });
+    await assert.rejects(oldResume, /token|stale|intent|journal/i);
+    assert.deepEqual(await readIntent({ userData, expectedToken: fresh.token }), fresh);
+  });
+});
+
+test("cross-process lock contention fails closed and fresh startup only recovers a proven-dead owner", async () => {
+  await withProfile(async ({ userData }) => {
+    const intent = await createIntent({ userData, operation: "manual", payload: {} });
+    const lockPath = join(userData, ".backup-intent.lock");
+    await writeFile(join(userData, `.backup-intent-lock-${"b".repeat(64)}.tmp`), "incomplete owner metadata before atomic publication");
+    assert.equal(await recoverStaleIntentLock({ userData, startupConfirmed: true }), false);
+    assert.deepEqual(await readIntent({ userData, expectedToken: intent.token }), intent);
+    const holderScript = `
+      import { open } from 'node:fs/promises';
+      const path = process.env.R16_TEST_LOCK_PATH;
+      const handle = await open(path, 'wx');
+      await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: 'a'.repeat(64), createdAt: new Date().toISOString() }));
+      await handle.sync();
+      await handle.close();
+      console.log('lock-held');
+      await new Promise(resolve => process.stdin.once('data', resolve));
+    `;
+    const child = spawn(process.execPath, ["--input-type=module", "-e", holderScript], {
+      env: { ...process.env, R16_TEST_LOCK_PATH: lockPath },
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let stderr = "";
+    child.stderr.setEncoding("utf8").on("data", chunk => { stderr += chunk; });
+    const closed = new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code, signal) => resolve({ code, signal }));
+    });
+    try {
+      await waitForChildLine(child, "lock-held");
+      await assert.rejects(readIntent({ userData, expectedToken: intent.token }), /lock|busy|transaction/i);
+      await assert.rejects(recoverStaleIntentLock({ userData, startupConfirmed: true }), /live|running|owner/i);
+    } finally {
+      child.stdin.end("exit");
+      const result = await closed;
+      assert.equal(result.code, 0, `lock holder failed: ${stderr}`);
+    }
+
+    await assert.rejects(recoverStaleIntentLock({ userData, startupConfirmed: false }), /startup/i);
+    assert.equal(await recoverStaleIntentLock({ userData, startupConfirmed: true }), true);
+    assert.deepEqual(await readIntent({ userData, expectedToken: intent.token }), intent);
   });
 });
 

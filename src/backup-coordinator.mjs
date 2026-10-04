@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { lstat, open, readFile, rename, rm } from "node:fs/promises";
+import { link, lstat, open, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { validateBackup } from "./backup.mjs";
@@ -12,6 +12,8 @@ export const BACKUP_INTENT_OPERATIONS = Object.freeze(["manual", "update", "rest
 export const BACKUP_INTENT_STATES = Object.freeze(["requested", "capturing", "captured", "resuming", "interrupted", "completed", "cancelled", "failed"]);
 
 const JOURNAL_NAME = "backup-intent.json";
+const LOCK_NAME = ".backup-intent.lock";
+const LOCK_KEYS = ["version", "pid", "token", "createdAt"];
 const JOURNAL_KEYS = ["version", "token", "operation", "state", "revision", "createdAt", "updatedAt", "sourceProfile", "backupRoot", "updateRoot", "payload", "capturedBackupPath", "failure"];
 const transitions = Object.freeze({
   requested: ["capturing", "cancelled", "failed"],
@@ -62,6 +64,7 @@ function pathsFor(userData) {
     backupRoot,
     updateRoot,
     journalPath: join(sourceProfile, JOURNAL_NAME),
+    lockPath: join(sourceProfile, LOCK_NAME),
   };
 }
 
@@ -221,6 +224,98 @@ async function readIntentFile(paths, expectedToken) {
   return intent;
 }
 
+function assertLockRecord(lock) {
+  exactKeys(lock, LOCK_KEYS, "Backup transaction lock");
+  if (lock.version !== 1) fail("Unsupported Backup transaction lock version");
+  if (!Number.isSafeInteger(lock.pid) || lock.pid < 1) fail("Backup transaction lock owner PID is invalid");
+  if (typeof lock.token !== "string" || !tokenPattern.test(lock.token)) fail("Backup transaction lock token is invalid");
+  assertIsoTimestamp(lock.createdAt, "lock creation time");
+  return lock;
+}
+
+async function readLock(paths) {
+  let info;
+  try { info = await lstat(paths.lockPath); }
+  catch (error) { if (error.code === "ENOENT") return null; throw error; }
+  if (!info.isFile() || info.isSymbolicLink()) fail("Backup transaction lock must be a regular app-owned file");
+  return assertLockRecord(JSON.parse(await readFile(paths.lockPath, "utf8")));
+}
+
+async function isProcessLive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (error) {
+    if (error.code === "ESRCH") return false;
+    if (error.code === "EPERM") return true;
+    fail(`Cannot prove whether Backup transaction owner ${pid} is alive: ${error.message}`);
+  }
+}
+
+async function acquireIntentLock(paths) {
+  const owner = { version: 1, pid: process.pid, token: randomBytes(32).toString("hex"), createdAt: new Date().toISOString() };
+  const temporaryPath = join(paths.userData, `.backup-intent-lock-${owner.token}.tmp`);
+  const handle = await open(temporaryPath, "wx");
+  try {
+    await handle.writeFile(`${JSON.stringify(owner)}\n`, "utf8");
+    await handle.sync();
+  } catch (error) {
+    await handle.close().catch(() => {});
+    await rm(temporaryPath, { force: true }).catch(() => {});
+    throw error;
+  }
+  await handle.close();
+  try {
+    // Link publishes complete, synced metadata atomically and never replaces an existing owner.
+    await link(temporaryPath, paths.lockPath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true }).catch(() => {});
+    if (error.code === "EEXIST") fail("Backup coordinator is busy; only a fresh primary startup may recover a stale transaction lock");
+    throw error;
+  }
+  await rm(temporaryPath, { force: true }).catch(() => {});
+  return owner;
+}
+
+async function releaseIntentLock(paths, owner) {
+  const lock = await readLock(paths);
+  if (!lock || lock.token !== owner.token || lock.pid !== owner.pid) fail("Backup transaction lock ownership changed while held");
+  await rm(paths.lockPath);
+}
+
+async function withIntentLock(paths, operation) {
+  const owner = await acquireIntentLock(paths);
+  try { return await operation(); }
+  finally { await releaseIntentLock(paths, owner); }
+}
+
+async function validatePublishedCapture(paths, token, capturedBackupPath) {
+  const expected = getCapturePaths(paths.userData, token).finalBackupPath;
+  if (typeof capturedBackupPath !== "string" || !samePath(capturedBackupPath, expected)) fail("Capture completion must use the token-owned published Backup path");
+  await assertRealDirectory(paths.backupRoot, "App-owned Backup root");
+  const info = await lstat(expected);
+  if (!info.isDirectory() || info.isSymbolicLink()) fail("Published Backup must be a real directory");
+  const manifestInfo = await lstat(join(expected, "manifest.json"));
+  if (!manifestInfo.isFile() || manifestInfo.isSymbolicLink()) fail("Published Backup manifest must be a regular file");
+  await validateBackup(expected);
+}
+
+export async function recoverStaleIntentLock(input) {
+  exactKeys(input, ["userData", "startupConfirmed"], "Stale lock recovery input");
+  if (input.startupConfirmed !== true) fail("Only a fresh primary startup may recover a stale Backup transaction lock");
+  const paths = pathsFor(input.userData);
+  const owner = await readLock(paths);
+  if (!owner) return false;
+  if (await isProcessLive(owner.pid)) fail(`Backup transaction lock is still owned by live process ${owner.pid}`);
+
+  // The caller must hold this profile's fresh primary-instance ownership; recheck the owner before unlinking.
+  const currentOwner = await readLock(paths);
+  if (!currentOwner) return false;
+  if (currentOwner.token !== owner.token || currentOwner.pid !== owner.pid) fail("Backup transaction lock changed during stale-owner verification");
+  if (await isProcessLive(currentOwner.pid)) fail(`Backup transaction lock is still owned by live process ${currentOwner.pid}`);
+  await rm(paths.lockPath);
+  await rm(join(paths.userData, `.backup-intent-lock-${owner.token}.tmp`), { force: true }).catch(() => {});
+  return true;
+}
+
 async function writeInitialJournal(paths, intent) {
   const handle = await open(paths.journalPath, "wx");
   try {
@@ -287,7 +382,7 @@ export async function createIntent(input) {
   };
   validateIntent(intent, paths);
   try {
-    await writeInitialJournal(paths, intent);
+    await withIntentLock(paths, () => writeInitialJournal(paths, intent));
   } catch (error) {
     if (error.code === "EEXIST") throw new Error("A Backup intent is already pending; startup must acknowledge it before another request", { cause: error });
     throw error;
@@ -298,50 +393,41 @@ export async function createIntent(input) {
 export async function readIntent(input) {
   exactKeys(input, ["userData", "expectedToken"], "Read Backup intent input");
   const { userData, expectedToken } = input;
-  return readIntentFile(pathsFor(userData), expectedToken);
+  const paths = pathsFor(userData);
+  return withIntentLock(paths, () => readIntentFile(paths, expectedToken));
 }
 
 export async function transitionIntent(input) {
   optionalShape(input, ["userData", "expectedToken", "expectedRevision", "nextState"], ["userData", "expectedToken", "expectedRevision", "nextState", "capturedBackupPath", "failure", "ownerExited"], "Backup transition input");
   const { userData, expectedToken, expectedRevision, nextState, capturedBackupPath, failure, ownerExited } = input;
   const paths = pathsFor(userData);
-  const current = await readIntentFile(paths, expectedToken);
-  assertRevision(current, expectedRevision);
-  assertTransition(current.state, nextState);
-  if (nextState === "interrupted" && ownerExited !== true) fail("Interrupted transition requires confirmation that the owner process exited");
-
-  let nextCapturedBackupPath = current.capturedBackupPath;
   if (nextState === "captured") {
-    const expected = getCapturePaths(paths.userData, current.token).finalBackupPath;
-    if (typeof capturedBackupPath !== "string" || !samePath(capturedBackupPath, expected)) fail("Capture completion must use the token-owned published Backup path");
-    await assertRealDirectory(paths.backupRoot, "App-owned Backup root");
-    const info = await lstat(expected);
-    if (!info.isDirectory() || info.isSymbolicLink()) fail("Published Backup must be a real directory");
-    const manifestInfo = await lstat(join(expected, "manifest.json"));
-    if (!manifestInfo.isFile() || manifestInfo.isSymbolicLink()) fail("Published Backup manifest must be a regular file");
-    await validateBackup(expected);
-    nextCapturedBackupPath = expected;
+    await validatePublishedCapture(paths, expectedToken, capturedBackupPath);
   } else if (capturedBackupPath !== undefined) {
     fail("Only capture completion may set the published Backup path");
   }
-
-  let nextFailure = null;
-  if (nextState === "failed") nextFailure = assertFailure(failure);
-  else if (nextState === "interrupted") nextFailure = { code: "interrupted", message: "The operation owner exited before recording completion; replay is blocked." };
-  else if (failure !== undefined) fail("Only a failed transition may include failure details");
   if (ownerExited !== undefined && nextState !== "interrupted") fail("Owner-exit confirmation is valid only for an interrupted transition");
-
-  const next = {
-    ...current,
-    state: nextState,
-    revision: current.revision + 1,
-    updatedAt: new Date().toISOString(),
-    capturedBackupPath: nextCapturedBackupPath,
-    failure: nextFailure,
-  };
-  assertIntentShape(next);
-  await replaceJournal(paths, next);
-  return next;
+  return withIntentLock(paths, async () => {
+    const current = await readIntentFile(paths, expectedToken);
+    assertRevision(current, expectedRevision);
+    assertTransition(current.state, nextState);
+    if (nextState === "interrupted" && ownerExited !== true) fail("Interrupted transition requires confirmation that the owner process exited");
+    let nextFailure = null;
+    if (nextState === "failed") nextFailure = assertFailure(failure);
+    else if (nextState === "interrupted") nextFailure = { code: "interrupted", message: "The operation owner exited before recording completion; replay is blocked." };
+    else if (failure !== undefined) fail("Only a failed transition may include failure details");
+    const next = {
+      ...current,
+      state: nextState,
+      revision: current.revision + 1,
+      updatedAt: new Date().toISOString(),
+      capturedBackupPath: nextState === "captured" ? getCapturePaths(paths.userData, current.token).finalBackupPath : current.capturedBackupPath,
+      failure: nextFailure,
+    };
+    assertIntentShape(next);
+    await replaceJournal(paths, next);
+    return next;
+  });
 }
 
 async function validateInstaller(path, artifact) {
@@ -360,16 +446,16 @@ export async function prepareResumeIntent(input) {
   exactKeys(input, ["userData", "expectedToken", "expectedRevision"], "Resume Backup intent input");
   const { userData, expectedToken, expectedRevision } = input;
   const paths = pathsFor(userData);
-  const current = await readIntentFile(paths, expectedToken);
-  assertRevision(current, expectedRevision);
-  if (current.state !== "captured") {
-    if (["capturing", "resuming", "interrupted"].includes(current.state)) fail(`Backup intent is ${current.state}; automatic replay is blocked`);
-    fail(`Backup intent in state ${current.state} cannot resume`);
+  const snapshot = await readIntentFile(paths, expectedToken);
+  assertRevision(snapshot, expectedRevision);
+  if (snapshot.state !== "captured") {
+    if (["capturing", "resuming", "interrupted"].includes(snapshot.state)) fail(`Backup intent is ${snapshot.state}; automatic replay is blocked`);
+    fail(`Backup intent in state ${snapshot.state} cannot resume`);
   }
-  const payload = await validateOperationPayload(current.operation, current.payload);
-  if (current.capturedBackupPath !== null) await validateSelectedBackup(current.capturedBackupPath);
+  const payload = await validateOperationPayload(snapshot.operation, snapshot.payload);
+  if (snapshot.capturedBackupPath !== null) await validateSelectedBackup(snapshot.capturedBackupPath);
   let continuation;
-  if (current.operation === "update") {
+  if (snapshot.operation === "update") {
     const artifact = validateReleaseManifest(payload.manifest, payload.platform, payload.arch).artifact;
     const installerFileName = basename(new URL(artifact.downloadUrl).pathname);
     assertSafeBasename(installerFileName, "Update download URL basename");
@@ -378,23 +464,27 @@ export async function prepareResumeIntent(input) {
     if (!isDirectChild(paths.updateRoot, installerPath)) fail("Update installer path is not an app-owned basename");
     await validateInstaller(installerPath, artifact);
     continuation = { artifact, installerPath };
-  } else if (current.operation === "restore") {
+  } else if (snapshot.operation === "restore") {
     continuation = { selectedBackup: payload.selectedBackup };
-  } else if (current.operation === "cheat") {
+  } else if (snapshot.operation === "cheat") {
     continuation = { config: payload.config };
   } else {
-    continuation = { backupPath: current.capturedBackupPath };
+    continuation = { backupPath: snapshot.capturedBackupPath };
   }
-
-  const next = {
-    ...current,
-    state: "resuming",
-    revision: current.revision + 1,
-    updatedAt: new Date().toISOString(),
-  };
-  assertIntentShape(next);
-  await replaceJournal(paths, next);
-  return { intent: next, continuation };
+  return withIntentLock(paths, async () => {
+    const current = await readIntentFile(paths, expectedToken);
+    assertRevision(current, expectedRevision);
+    if (current.state !== "captured") fail(`Backup intent changed to ${current.state}; stale continuation rejected`);
+    const next = {
+      ...current,
+      state: "resuming",
+      revision: current.revision + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    assertIntentShape(next);
+    await replaceJournal(paths, next);
+    return { intent: next, continuation };
+  });
 }
 
 export async function clearTerminalIntent(input) {
@@ -402,28 +492,32 @@ export async function clearTerminalIntent(input) {
   const { userData, expectedToken, startupConfirmed } = input;
   if (startupConfirmed !== true) fail("Only a fresh primary startup may acknowledge a terminal Backup intent");
   const paths = pathsFor(userData);
-  const current = await readIntentFile(paths, expectedToken);
-  if (!["completed", "cancelled", "failed"].includes(current.state)) fail("Only a terminal Backup intent can be acknowledged at startup");
-  await rm(paths.journalPath);
-  return current;
+  return withIntentLock(paths, async () => {
+    const current = await readIntentFile(paths, expectedToken);
+    if (!["completed", "cancelled", "failed"].includes(current.state)) fail("Only a terminal Backup intent can be acknowledged at startup");
+    await rm(paths.journalPath);
+    return current;
+  });
 }
 
 export async function cleanupCaptureStage(input) {
   exactKeys(input, ["userData", "expectedToken"], "Capture cleanup input");
   const { userData, expectedToken } = input;
   const paths = pathsFor(userData);
-  const intent = await readIntentFile(paths, expectedToken);
-  if (!["interrupted", "completed", "cancelled", "failed"].includes(intent.state)) fail("Capture stage cleanup requires a terminal or interrupted intent");
-  const stagePath = getCapturePaths(paths.userData, intent.token).stageRoot;
-  let rootInfo;
-  try { rootInfo = await lstat(paths.backupRoot); }
-  catch (error) { if (error.code === "ENOENT") return false; throw error; }
-  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) fail("App-owned Backup root is not a real directory");
-  if (!isDirectChild(paths.backupRoot, stagePath)) fail("Derived capture stage escaped the app-owned Backup root");
-  let info;
-  try { info = await lstat(stagePath); }
-  catch (error) { if (error.code === "ENOENT") return false; throw error; }
-  if (!info.isDirectory() || info.isSymbolicLink()) fail("Token-owned capture stage is not a real directory");
-  await rm(stagePath, { recursive: true });
-  return true;
+  return withIntentLock(paths, async () => {
+    const intent = await readIntentFile(paths, expectedToken);
+    if (!["interrupted", "completed", "cancelled", "failed"].includes(intent.state)) fail("Capture stage cleanup requires a terminal or interrupted intent");
+    const stagePath = getCapturePaths(paths.userData, intent.token).stageRoot;
+    let rootInfo;
+    try { rootInfo = await lstat(paths.backupRoot); }
+    catch (error) { if (error.code === "ENOENT") return false; throw error; }
+    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) fail("App-owned Backup root is not a real directory");
+    if (!isDirectChild(paths.backupRoot, stagePath)) fail("Derived capture stage escaped the app-owned Backup root");
+    let info;
+    try { info = await lstat(stagePath); }
+    catch (error) { if (error.code === "ENOENT") return false; throw error; }
+    if (!info.isDirectory() || info.isSymbolicLink()) fail("Token-owned capture stage is not a real directory");
+    await rm(stagePath, { recursive: true });
+    return true;
+  });
 }
