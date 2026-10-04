@@ -146,10 +146,10 @@ Recommended dispatch batches: R01/R02/R03, then R04 plus R07/R09, then R05/R08/R
 
 ### After R10 and R11
 
-- [ ] The locked graph installs cleanly; current audit evidence includes explicit remaining advisory deferrals.
-- [ ] Native keyboard coverage runs under the resolved Electron version; Windows smoke packaging passes.
-- [ ] Backup capture has supported evidence, or a corrective follow-up remains an explicit release blocker.
-- [ ] Integrated npm test passes. Build the upstream game during native platform validation rather than count smoke packaging as a distributable build.
+- [x] The locked graph installs cleanly; current audit evidence includes explicit remaining advisory deferrals.
+- [x] Native keyboard coverage runs under the resolved Electron version; Windows smoke packaging passes.
+- [x] Backup capture has supported evidence, or a corrective follow-up remains an explicit release blocker. R14 proves the Windows prototype; R16-R20 remain required before native release clearance.
+- [x] Integrated npm test passes. The upstream game build also exited 0; smoke packaging does not establish distributable or installed gameplay clearance.
 
 ### After R12 and R13
 
@@ -162,6 +162,8 @@ Recommended dispatch batches: R01/R02/R03, then R04 plus R07/R09, then R05/R08/R
 ### Optional queue checkpoints
 
 If selected, review S01/S02a/S02b after their changes integrate, then S03/S04/S05, then S06a/S06b/P01. After each group, run the affected focused checks and npm test. Revalidate the keyboard probe after preload removal and packaging/manifest policies after release-script edits. Optional evidence does not replace the required native release checkpoint.
+
+All nine optional tasks were selected, reviewed, integrated and closed on 2026-10-04. The final primary combined suite passed 119/119 with zero skips on Electron 42.11.10; evidence and integration commits are recorded in tasks/progress.md. Native release checkpoints remain open.
 
 ## Coverage of the report
 
