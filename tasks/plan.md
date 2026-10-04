@@ -81,7 +81,7 @@ A reusable assignment prompt:
 
 ### Checkpoint: Cold capture proof and integration
 
-- [ ] R14 proves graceful exit/relaunch, source ownership lock, and isolated worker profile; stop the design if any proof fails.
+- [x] R14 proves graceful exit/relaunch, source ownership lock, and isolated worker profile on Windows with Electron 42.11.10; retain packaged/macOS verification gates and stop the design if their proof fails.
 - [ ] The packaged worker never opens a session against the source profile before copying and all three storage directories remain in scope; document Session Storage browsing-context limits precisely.
 - [ ] All four Backup call flows resume once after success, fail visibly on cancellation/veto/error/interruption, and do not trust persisted paths or replay operations.
 - [ ] R20 passes against the actual packaged app; until then #19/#20 stay blocked by #37.
