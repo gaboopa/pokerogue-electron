@@ -397,6 +397,18 @@ export async function readIntent(input) {
   return withIntentLock(paths, () => readIntentFile(paths, expectedToken));
 }
 
+export async function readCurrentIntent(input) {
+  exactKeys(input, ["userData"], "Read current Backup intent input");
+  const paths = pathsFor(input.userData);
+  let info;
+  try { info = await lstat(paths.journalPath); }
+  catch (error) { if (error.code === "ENOENT") return null; throw error; }
+  if (!info.isFile() || info.isSymbolicLink()) fail("Backup intent journal must be a regular app-owned file");
+  const intent = JSON.parse(await readFile(paths.journalPath, "utf8"));
+  validateIntent(intent, paths);
+  return intent;
+}
+
 export async function transitionIntent(input) {
   optionalShape(input, ["userData", "expectedToken", "expectedRevision", "nextState"], ["userData", "expectedToken", "expectedRevision", "nextState", "capturedBackupPath", "failure", "ownerExited"], "Backup transition input");
   const { userData, expectedToken, expectedRevision, nextState, capturedBackupPath, failure, ownerExited } = input;
@@ -485,6 +497,21 @@ export async function prepareResumeIntent(input) {
     await replaceJournal(paths, next);
     return { intent: next, continuation };
   });
+}
+
+export async function revalidateResumingUpdate(input) {
+  exactKeys(input, ["userData", "expectedToken", "expectedRevision"], "Revalidate Update installer input");
+  const paths = pathsFor(input.userData);
+  const current = await readIntentFile(paths, input.expectedToken);
+  assertRevision(current, input.expectedRevision);
+  if (current.operation !== "update" || current.state !== "resuming") fail("Only the owned resuming Update can revalidate its installer");
+  const payload = await validateOperationPayload("update", current.payload);
+  const artifact = validateReleaseManifest(payload.manifest, payload.platform, payload.arch).artifact;
+  const installerPath = resolve(paths.updateRoot, basename(new URL(artifact.downloadUrl).pathname));
+  if (!isDirectChild(paths.updateRoot, installerPath)) fail("Update installer path is not an app-owned basename");
+  await assertRealDirectory(paths.updateRoot, "App-owned Update root");
+  await validateInstaller(installerPath, artifact);
+  return { artifact, installerPath };
 }
 
 export async function clearTerminalIntent(input) {

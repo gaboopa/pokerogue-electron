@@ -10,6 +10,7 @@ import { checkForUpdate, downloadVerified } from "./updater.mjs";
 import { registerGameProtocol } from "./protocol.mjs";
 import { createUtilitiesSubmenu } from "./utilities.mjs";
 import { createMenuTemplate } from "./menu.mjs";
+import { clearTerminalIntent, createIntent, prepareResumeIntent, readCurrentIntent, recoverStaleIntentLock, revalidateResumingUpdate, transitionIntent } from "./backup-coordinator.mjs";
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, stream: true } }]);
 app.setName(PRODUCT_NAME);
@@ -24,6 +25,7 @@ let cheatController;
 let startupRecoveryBlocked = false;
 let startupReady = false;
 let startupRestarting = false;
+let backupRequestPromise;
 
 function getLiveMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
@@ -103,6 +105,92 @@ async function backupSaves(showConfirmation = true) {
   const output = await createBackup(paths().userData, paths().backupRoot);
   if (showConfirmation) await showMessageBox({ type: "info", title: "Save backup complete", message: "Your saves were backed up.", detail: output });
   return output;
+}
+
+function workerArgs(token) {
+  const args = app.isPackaged ? [] : [app.getAppPath(), "--"];
+  args.push(`--backup-worker=${token}`, `--backup-parent-pid=${process.pid}`);
+  return args;
+}
+
+async function requestColdBackup(operation, payload, reserved = false) {
+  if (backupRequestPromise && !reserved) {
+    await showMessageBox({ type: "info", title: "Backup already in progress", message: "Another Backup or Update continuation already owns the cold capture request." });
+    return { requested: false, busy: true };
+  }
+  const request = (async () => {
+    const intent = await createIntent({ userData: paths().userData, operation, payload });
+    try {
+      startupRestarting = true;
+      app.relaunch({ args: workerArgs(intent.token) });
+      app.once("before-quit", event => {
+        queueMicrotask(() => {
+          if (!event.defaultPrevented) return;
+          startupRestarting = false;
+          void transitionIntent({ userData: paths().userData, expectedToken: intent.token, expectedRevision: intent.revision, nextState: "failed", failure: { code: "quit-vetoed", message: "The application shutdown was cancelled; no live Backup was attempted." } })
+            .then(() => showMessageBox({ type: "warning", title: "Backup cancelled", message: "The application could not close, so no Backup was made." }))
+            .catch(error => showMessageBox({ type: "warning", title: "Backup request needs attention", message: "The application could not close, and the request could not be recorded as failed.", detail: error.message }));
+        });
+      });
+      app.quit();
+      return { requested: true };
+    } catch (error) {
+      startupRestarting = false;
+      await transitionIntent({ userData: paths().userData, expectedToken: intent.token, expectedRevision: intent.revision, nextState: "failed", failure: { code: "restart-failed", message: String(error.message ?? error).slice(0, 1024) } }).catch(() => {});
+      await showMessageBox({ type: "warning", title: "Backup could not start", message: "The application could not restart to make a safe Backup.", detail: error.message });
+      return { requested: false, error: error.message };
+    }
+  })();
+  backupRequestPromise = request;
+  try { return await request; }
+  finally { if (backupRequestPromise === request) backupRequestPromise = undefined; }
+}
+
+async function requestManualBackup() {
+  if (backupRequestPromise) return backupRequestPromise;
+  const choice = showMessageBox({ type: "warning", title: "Restart to back up saves", message: "PokeRogue Offline must close briefly to make a consistent Backup.", detail: "Choose Restart to create the Backup, or Cancel to keep playing.", buttons: ["Restart and Back Up", "Cancel"], defaultId: 0, cancelId: 1 });
+  backupRequestPromise = (async () => {
+    const answer = await choice;
+    if (answer.response !== 0) return { backedUp: false, cancelled: true };
+    return requestColdBackup("manual", {}, true);
+  })().finally(() => { backupRequestPromise = undefined; });
+  return backupRequestPromise;
+}
+
+async function resumeColdBackupIntent() {
+  const userData = paths().userData;
+  await recoverStaleIntentLock({ userData, startupConfirmed: true });
+  const current = await readCurrentIntent({ userData });
+  if (!current) return;
+  if (current.operation !== "manual" && current.operation !== "update") return;
+  if (["completed", "cancelled", "failed"].includes(current.state)) {
+    await clearTerminalIntent({ userData, expectedToken: current.token, startupConfirmed: true });
+    if (current.operation === "manual") await showMessageBox({ type: current.state === "completed" ? "info" : "warning", title: current.state === "completed" ? "Save backup complete" : "Backup not completed", message: current.state === "completed" ? "Your saves were backed up." : "The requested Backup did not complete.", detail: current.failure?.message ?? current.capturedBackupPath ?? "" });
+    else await showMessageBox({ type: "warning", title: "Update backup did not complete", message: "The Update was downloaded, but its required cold Backup did not complete.", detail: current.failure?.message ?? "The operation was cancelled." });
+    return;
+  }
+  if (current.state !== "captured") {
+    startupRecoveryBlocked = true;
+    await showMessageBox({ type: "warning", title: "Backup request needs attention", message: "A previous cold Backup did not finish. It will not be replayed automatically.", detail: current.failure?.message ?? `Request state: ${current.state}` });
+    return;
+  }
+  const resumed = await prepareResumeIntent({ userData, expectedToken: current.token, expectedRevision: current.revision });
+  if (current.operation === "manual") {
+    await transitionIntent({ userData, expectedToken: current.token, expectedRevision: resumed.intent.revision, nextState: "completed" });
+    await clearTerminalIntent({ userData, expectedToken: current.token, startupConfirmed: true });
+    await showMessageBox({ type: "info", title: "Save backup complete", message: "Your saves were backed up.", detail: resumed.continuation.backupPath });
+    return;
+  }
+  if (current.operation === "update") {
+    const install = await showMessageBox({ type: "info", title: "Update downloaded", message: process.platform === "darwin" ? "Open the DMG, drag PokeRogue Offline into Applications, and replace the existing copy. macOS may ask you to approve this unsigned build in System Settings." : "Close the game and run the installer to update.", detail: resumed.continuation.installerPath, buttons: ["Open Update", "Later"], defaultId: 0, cancelId: 1 });
+    if (install.response === 0) {
+      const verified = await revalidateResumingUpdate({ userData, expectedToken: current.token, expectedRevision: resumed.intent.revision });
+      const openError = await shell.openPath(verified.installerPath);
+      if (openError) throw new Error(openError);
+    }
+    await transitionIntent({ userData, expectedToken: current.token, expectedRevision: resumed.intent.revision, nextState: "completed" });
+    await clearTerminalIntent({ userData, expectedToken: current.token, startupConfirmed: true });
+  }
 }
 
 async function chooseAndRestore() {
@@ -335,10 +423,8 @@ async function performUpdateCheck() {
     }
     const answer = await showMessageBox({ type: "info", title: "Update available", message: `Version ${result.manifest.version} is available.`, detail: "Download the verified installer now?", buttons: ["Download", "Cancel"], defaultId: 0, cancelId: 1 });
     if (answer.response !== 0) return { available: true, downloaded: false };
-    const installer = await downloadVerified(result.artifact, paths().downloadRoot);
-    await backupSaves(false);
-    const install = await showMessageBox({ type: "info", title: "Update downloaded", message: process.platform === "darwin" ? "Open the DMG, drag PokeRogue Offline into Applications, and replace the existing copy. macOS may ask you to approve this unsigned build in System Settings." : "Close the game and run the installer to update.", detail: installer, buttons: ["Open Update", "Later"], defaultId: 0, cancelId: 1 });
-    if (install.response === 0) await shell.openPath(installer);
+    await downloadVerified(result.artifact, paths().downloadRoot);
+    await requestColdBackup("update", { manifest: result.manifest, platform, arch: process.arch });
     return { available: true, downloaded: true };
   } catch (error) {
     await showMessageBox({ type: "warning", title: "Update check unavailable", message: "Could not check for updates. Offline gameplay is unaffected.", detail: error.message });
@@ -367,7 +453,7 @@ function createMenu() {
     isMac,
     productName: PRODUCT_NAME,
     onCheckForUpdates: performUpdateCheck,
-    onBackup: () => backupSaves(true),
+    onBackup: requestManualBackup,
     onRestore: chooseAndRestore,
     onOpenSaveFolder: () => shell.openPath(paths().userData),
     onReload: () => getLiveMainWindow()?.reload(),
@@ -382,7 +468,7 @@ function createMenu() {
 function registerIpc() {
   ipcMain.handle("app:get-version", () => app.getVersion());
   ipcMain.handle("updates:check", performUpdateCheck);
-  ipcMain.handle("saves:backup", () => backupSaves(true));
+  ipcMain.handle("saves:backup", requestManualBackup);
   ipcMain.handle("saves:restore", chooseAndRestore);
   ipcMain.handle("saves:open-folder", async () => ({ error: await shell.openPath(paths().userData) }));
 }
@@ -428,6 +514,13 @@ app.whenReady().then(async () => {
   await mkdir(paths().backupRoot, { recursive: true });
   await applyPendingRestore();
   if (startupRestarting || startupRecoveryBlocked) return;
+  try { await resumeColdBackupIntent(); }
+  catch (error) {
+    startupRecoveryBlocked = true;
+    await showMessageBox({ type: "warning", title: "Backup continuation failed", message: "The Backup or Update could not safely continue.", detail: error.message });
+    return;
+  }
+  if (startupRecoveryBlocked) return;
   await reloadKeybindings();
   registerGameProtocol(protocol, gameRoot);
   installNetworkPolicy();
