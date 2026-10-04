@@ -20,17 +20,15 @@ export function createWindowsBuildConfig(baseBuild, mode) {
   if (mode === "release") return config;
 
   config.npmRebuild = false;
+  config.nsis.differentialPackage = false;
+  config.nsis.useZip = true;
   if (mode === "smoke") {
     config.extraResources = null;
     config.directories.output = "release/smoke";
     config.win.artifactName = `PokeRogue-Offline-Installer-Smoke-${NON_RELEASE_MARKER}.\${ext}`;
-    config.nsis.differentialPackage = false;
-    config.nsis.useZip = true;
   } else {
     config.directories.output = "release/dev";
     config.win.artifactName = `PokeRogue-Offline-\${version}-windows-x64-Dev-${NON_RELEASE_MARKER}.\${ext}`;
-    config.nsis.differentialPackage = false;
-    config.nsis.useZip = true;
   }
   return config;
 }
