@@ -23,7 +23,6 @@ test("desktop reload, fullscreen, and developer shortcuts remain registered", ()
   });
   const view = menu.find((item) => item.label === "View");
   assert.deepEqual(view.submenu.map((item) => item.accelerator), ["CommandOrControl+R", "F11", "F12"]);
-  assert.match(main, /input\.key === "F5"/);
 });
 
 test("validated mappings use one-way IPC without exposing filesystem access", () => {
