@@ -22,8 +22,8 @@
     "release:manifest": "node scripts/release-manifest.mjs"
   },
   "devDependencies": {
-    "electron": "^42.0.0",
-    "electron-builder": "^26.0.12"
+    "electron": "^42.11.10",
+    "electron-builder": "^26.17.0"
   },
   "build": {
     "appId": "com.gaboopa.pokerogueoffline",
@@ -103,6 +103,6 @@
     }
   },
   "allowScripts": {
-    "electron@42.7.1": true
+    "electron@42.11.10": true
   }
 }
