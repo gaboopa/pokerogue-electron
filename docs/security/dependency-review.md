@@ -27,7 +27,7 @@ The direct manifest retains caret ranges `electron: ^42.11.10` and `electron-bui
 
 Electron 42.11.10's installed `package.json` has no lifecycle scripts. With npm's `ignore-scripts=false`, `npm ci` installs the package but does not download its native runtime; Electron's `index.js` lazily downloads and extracts it when the first caller resolves `require("electron")`. The `allowScripts` entry remains exactly `electron@42.11.10`; it does not mean npm ran an install hook.
 
-The `npm test` command now runs `electron --version` before `node --test test/*.test.mjs`. The CLI resolves the Electron executable and waits for its version process to exit before starting the parallel test workers. This serializes the first lazy installation and fails early if the selected executable is unavailable or has the wrong version. Prefixing the explicit test command also keeps this gate in the test command itself rather than depending on npm running a `pretest` hook.
+The `npm test` command now runs `electron --version` before `node --test test/*.test.mjs`. The CLI resolves the Electron executable and waits for its version process to exit before starting the parallel test workers. This serializes the first lazy installation, fails early if the executable cannot run, and prints its version for verification against the lockfile. Prefixing the explicit test command also keeps this gate in the test command itself rather than depending on npm running a `pretest` hook.
 
 ## Deferred advisory
 
