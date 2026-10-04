@@ -240,6 +240,22 @@ test("invalid markers with retained rollback copies stay blocked and show their 
   assert.deepEqual(await attempts(userData), []);
 });
 
+test("failed markers without a valid recovery discriminator use scan-aware blocking", async () => {
+  const h = await harness();
+  const userData = join(h.root, "user");
+  await mkdir(userData, { recursive: true });
+  const recoveryPath = join(userData, ".restore-rollback-unknown-failure");
+  await mkdir(recoveryPath);
+  const markerPath = join(userData, "pending-restore.json");
+  await writeFile(markerPath, JSON.stringify({ version: 1, status: "failed", selected: "selected", safetyBackup: "safety" }));
+  const result = await launch(h, userData, { R05_DIALOG_RESPONSE: "cancel" });
+  const failed = JSON.parse(await readFile(markerPath, "utf8"));
+  assert.equal(failed.recoveryRequired, true);
+  assert.ok(result.dialogs[0].detail.includes(recoveryPath));
+  assert.equal(result.windows, 0);
+  assert.deepEqual(await attempts(userData), []);
+});
+
 test("marker read or transition failures fail closed before applying the Backup", async () => {
   for (const extra of [{ R05_FAIL_READ: "1" }, { R05_FAIL_APPLY_WRITE: "1" }, { R05_FAIL_TRANSITION: "1" }]) {
     const h = await harness();
@@ -275,6 +291,10 @@ test("completion write errors preserve an applying marker and never replay a suc
   const markerPath = await pending(userData, selected);
   const first = await launch(h, userData, { R05_FAIL_COMPLETED_WRITE: "1" });
   assert.equal(first.windows, 0);
+  assert.ok(first.dialogs[0].title.includes("status needs review"));
+  assert.match(first.dialogs[0].message, /Backup was applied, but its completion could not be recorded/i);
+  assert.equal(first.dialogs[0].buttons.includes("Choose another Backup"), false);
+  assert.deepEqual(await attempts(userData), [selected]);
   assert.equal(JSON.parse(await readFile(markerPath, "utf8")).status, "applying");
   const second = await launch(h, userData);
   assert.equal(second.windows, 0);

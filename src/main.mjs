@@ -161,6 +161,7 @@ async function showRestoreRecovery(marker, message, { blocked = false, allowFres
 function validRestoreMarker(marker) {
   return marker && typeof marker === "object" && !Array.isArray(marker) && marker.version === 1 &&
     ["pending", "applying", "failed", "completed"].includes(marker.status) &&
+    (marker.status !== "failed" || typeof marker.recoveryRequired === "boolean") &&
     (marker.selected === undefined || typeof marker.selected === "string") &&
     (marker.safetyBackup === undefined || typeof marker.safetyBackup === "string");
 }
@@ -288,7 +289,7 @@ async function applyPendingRestore() {
     await writeRestoreMarker({ ...marker, status: "completed" });
   } catch (error) {
     startupRecoveryBlocked = true;
-    await showRestoreRecovery(marker, `The Backup was applied, but completion could not be recorded: ${error.message}`, { blocked: true, allowFresh: true });
+    await showRestoreRecovery(marker, `The Backup was applied, but completion could not be recorded: ${error.message}`, { blocked: true, completionUnrecorded: true });
     return;
   }
   try {
