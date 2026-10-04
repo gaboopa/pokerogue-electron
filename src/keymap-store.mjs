@@ -2,7 +2,16 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { DEFAULT_KEYMAP, parseKeymap } from "./keybindings.mjs";
 const serializedDefaults = `${JSON.stringify(DEFAULT_KEYMAP, null, 2)}\n`;
 export async function ensureKeymap(path) {
-  try { await stat(path); } catch (error) { if (error.code !== "ENOENT") throw error; await writeFile(path, serializedDefaults, { encoding: "utf8", flag: "wx" }); }
+  try {
+    await stat(path);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+
+    await writeFile(path, serializedDefaults, { encoding: "utf8", flag: "wx" });
+  }
+
   return path;
 }
 export async function loadKeymap(path, warn = console.warn) {
