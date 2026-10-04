@@ -89,6 +89,28 @@ function waitForChildLine(child, expectedLine) {
   });
 }
 
+async function waitForChildClose(child, closed, timeoutMs = 1500) {
+  let timeout;
+  const outcome = await Promise.race([
+    closed.then(result => ({ result }), error => ({ error })),
+    new Promise(resolve => { timeout = setTimeout(() => resolve({ timeout: true }), timeoutMs); }),
+  ]);
+  clearTimeout(timeout);
+  if (outcome.error) throw outcome.error;
+  if (outcome.result) return outcome.result;
+
+  const killSent = child.kill();
+  let killTimeout;
+  const afterKill = await Promise.race([
+    closed.then(result => ({ result }), error => ({ error })),
+    new Promise(resolve => { killTimeout = setTimeout(() => resolve({ timeout: true }), 1000); }),
+  ]);
+  clearTimeout(killTimeout);
+  if (afterKill.error) throw afterKill.error;
+  if (afterKill.timeout) throw new Error(`Lock-holder child PID ${child.pid} did not exit after bounded cleanup; kill sent: ${killSent}`);
+  throw new Error(`Lock-holder child PID ${child.pid} exceeded its graceful-exit deadline and was killed; exit: ${JSON.stringify(afterKill.result)}`);
+}
+
 async function captureIntent(userData, intent) {
   const capturing = await transitionIntent({
     userData,
@@ -223,7 +245,8 @@ test("an old in-flight Update resume cannot replace a newer intent after termina
     await mkdir(paths.updateRoot, { recursive: true });
     await writeFile(join(paths.updateRoot, "windows.exe"), bytes);
     const captured = await captureIntent(userData, old);
-    const oldResume = prepareResumeIntent({ userData, expectedToken: old.token, expectedRevision: captured.revision });
+    const oldResume = prepareResumeIntent({ userData, expectedToken: old.token, expectedRevision: captured.revision })
+      .then(value => ({ fulfilled: true, value }), error => ({ fulfilled: false, error }));
 
     await new Promise(resolve => setTimeout(resolve, 20));
     const failed = await transitionIntent({
@@ -235,7 +258,9 @@ test("an old in-flight Update resume cannot replace a newer intent after termina
     });
     await clearTerminalIntent({ userData, expectedToken: failed.token, startupConfirmed: true });
     const fresh = await createIntent({ userData, operation: "manual", payload: {} });
-    await assert.rejects(oldResume, /token|stale|intent|journal/i);
+    const resumeOutcome = await oldResume;
+    assert.equal(resumeOutcome.fulfilled, false, "in-flight stale resume must be rejected");
+    assert.match(resumeOutcome.error.message, /token|stale|intent|journal/i);
     assert.deepEqual(await readIntent({ userData, expectedToken: fresh.token }), fresh);
   });
 });
@@ -274,7 +299,7 @@ test("cross-process lock contention fails closed and fresh startup only recovers
       await assert.rejects(recoverStaleIntentLock({ userData, startupConfirmed: true }), /live|running|owner/i);
     } finally {
       child.stdin.end("exit");
-      const result = await closed;
+      const result = await waitForChildClose(child, closed);
       assert.equal(result.code, 0, `lock holder failed: ${stderr}`);
     }
 
