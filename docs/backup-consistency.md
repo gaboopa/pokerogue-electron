@@ -48,3 +48,13 @@ Official references: [Electron `app.relaunch()`](https://www.electronjs.org/docs
 - `node --test test/backup-cold-capture.test.mjs` — exit 0, 1/1 passed, including three native Electron cold-worker/copy/restore rounds and one veto/cancellation round on Electron 42.11.10.
 - Earlier R11 baseline: `npm test` — exit 0, 77/77 passed, no skipped tests.
 - Rebased R14 head (`8b6da95` plus the R14 proof): `npm test` — exit 0, 114/114 passed, no skipped tests; npm selected Electron 42.11.10.
+
+## R17 production bootstrap and worker
+
+The package entry is src/bootstrap.mjs. It selects the mode, sets the product name and source paths, and takes source-profile single-instance ownership synchronously. Worker mode changes both userData and sessionData to a token-derived runtime profile before yielding, and never imports the game main module. The worker checks the old source PID is gone, validates the strict journal and real source/Backup directories, then uses atomic Backup publication and records captured state before normal relaunch.
+
+Normal mode uses synchronous require(ESM) for the current no-top-level-await main graph. An actual Electron 42.11.10 probe verified that graph loads before readiness, preserving module-scope protocol registration. Node documents this synchronous graph requirement in its [module documentation](https://nodejs.org/api/modules.html#loading-ecmascript-modules-using-require); Electron documents the dynamic-import readiness risk in its [ESM guide](https://www.electronjs.org/docs/latest/tutorial/esm).
+
+Three disposable native Windows rounds verified source exit and ownership, runtime-path/default-session isolation, Local Storage and synthetic IndexedDB reopen without worker-only records, and normal relaunch only after worker exit. The worker can remove an empty runtime directory; it retains and reports a nonempty directory without blocking successful relaunch. Failure tests intercept actual dialog calls, and per-PID markers support bounded identity-checked helper cleanup. The focused suite passed 3/3; the final primary combined suite passed 134/134 with zero skips.
+
+These results do not establish native macOS behavior or actual packaged-app clearance. The four user-flow continuations remain R18/R19, packaged proof remains R20, and the Session Storage browsing-context limit above remains unchanged.
