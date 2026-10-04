@@ -12,18 +12,18 @@ This is not native release clearance.
 | R02 #9 | Reviewed, mutation detected, integrated 8b58dfd, issue closed |
 | R03 #10 | Reviewed, numeric-keyCode mutation detected, integrated ae2d50b and 35a0173; portable native harness; issue closed |
 | R04 #11 | Reviewed, corruption mutation detected, integrated cc45657; v1 compatibility and v2 framed integrity tested; issue closed |
-| R05 #12 | Stopped at usage limit; partial backup error-contract edits and startup regression preserved in startup-recovery-r05; not integrated |
+| R05 #12 | Resumed by startup_recovery_resume from preserved edits in startup-recovery-r05; not integrated |
 | R06 #13 | Waiting for R05 |
 | R07 #14 | Reviewed, integrated d5849a2, Windows spaced-path fixture verified; issue closed |
-| R08 #15 | Stopped at usage limit; script and regression edits preserved in durable-sync-report-r08; not integrated |
+| R08 #15 | Resumed by durable_reports_resume from preserved edits in durable-sync-report-r08; not integrated |
 | R09 #16 | Reviewed, shape-guard mutation detected, integrated 25b763a, issue closed |
 | R10 #17 | Dependency review waits for remaining correctness fixes |
-| R11 #18 | Stopped at usage limit; native storage probe and snapshot test preserved in backup-consistency-r11; no accepted conclusion |
+| R11 #18 | Resumed by backup_consistency_resume from preserved native probes in backup-consistency-r11; no accepted conclusion |
 | R12 #19 | Windows native release validation pending |
 | R13 #20 | Validation-only workflow prepared and reviewed; CI execution and hands-on Mac QA pending |
 | S01, S02a, S02b, S03, S04, S05, S06a, S06b, P01 | Approved by all-updates goal; wait for R10 |
 
-Agent names persist across assignments: r01_restore_rollback handles R05, r02_verified_downloads handles R08, r03_keyboard_preload handles R11. Each assignment uses its named isolated worktree and branch. Read current agent/tool status and Git state before assuming a worker remains live.
+Resumed Luna assignments: startup_recovery_resume handles R05, durable_reports_resume handles R08, backup_consistency_resume handles R11. Each assignment uses its named isolated worktree and branch. Read current agent/tool status and Git state before assuming a worker remains live.
 
 Review evidence: restore/download/keyboard/cheat guard mutations failed their regression suites and original bytes were restored. Inventory corruption rejection was independently exercised through the worker's disposable mutated module. Combined tests run on integrated code.
 
@@ -31,3 +31,4 @@ No release was published. Native macOS Dock, Gatekeeper, and upgrade results rem
 
 Interruption check, 2026-10-04: no child agents are live. The primary checkout is clean and all six integrated correctness fixes remain committed. Partial worker edits are preserved in their isolated worktrees. Usage is available again. The macOS workflow has not been pushed or run. The prior full-build process handle no longer exists; Vite reported completion and staged revisions/index outputs exist, but the command's final exit result was not retained, so complete build validation needs fresh evidence.
 
+Resumed 2026-10-04: three new Luna agents own the preserved R05/R08/R11 worktrees. A fresh full-game build is running with its complete output retained in .local-build/luna-plan/full-game-build.log.
