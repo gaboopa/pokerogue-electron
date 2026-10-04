@@ -121,7 +121,7 @@ async function findRecoveryPaths(marker) {
   return { recoveryPaths: [...recoveryPaths], scanError };
 }
 
-async function showRestoreRecovery(marker, message, { blocked = false, allowFresh = false, completed = false } = {}) {
+async function showRestoreRecovery(marker, message, { blocked = false, allowFresh = false, completed = false, completionUnrecorded = false } = {}) {
   const userData = paths().userData;
   const safetyBackup = typeof marker?.safetyBackup === "string" ? marker.safetyBackup : "Unavailable";
   const selected = typeof marker?.selected === "string" ? marker.selected : "Unavailable";
@@ -130,9 +130,11 @@ async function showRestoreRecovery(marker, message, { blocked = false, allowFres
   const scanNote = scanError ? `\nCould not scan for retained recovery copies: ${scanError}` : "";
   const result = await dialog.showMessageBox({
     type: blocked ? "error" : completed ? "info" : "warning",
-    title: blocked ? "Save recovery required" : completed ? "Backup restore completed with a warning" : "Backup restore failed",
+    title: blocked ? completionUnrecorded ? "Restore status needs review" : "Save recovery required" : completed ? "Backup restore completed with a warning" : "Backup restore failed",
     message: blocked
-      ? "The app cannot safely load Save data because a restore may be incomplete."
+      ? completionUnrecorded
+        ? "The Backup was applied, but its completion could not be recorded. The app will not load Save data until recovery is checked."
+        : "The app cannot safely load Save data because a restore may be incomplete."
       : completed ? "The Backup was restored. Review the detail for the recovery state." : "The requested Backup was not restored. Your current Save data is available.",
     detail: `${message}${scanNote}\n\nSelected Backup: ${selected}\nSafety Backup: ${safetyBackup}\nRecovery copies: ${recoveryCopies}\nSave folder: ${userData}`,
     buttons: blocked
@@ -179,12 +181,13 @@ async function applyPendingRestore() {
   try { marker = JSON.parse(raw); }
   catch (error) {
     const recovery = await findRecoveryPaths(null);
-    const blocked = recovery.recoveryPaths.length > 0;
-    marker = { version: 1, status: "failed", selected: "Unavailable", safetyBackup: "Unavailable", recoveryPaths: recovery.recoveryPaths, recoveryRequired: blocked, error: { message: `The restore request is malformed and was not applied: ${error.message}` } };
+    const blocked = recovery.recoveryPaths.length > 0 || Boolean(recovery.scanError);
+    marker = { version: 1, status: "failed", selected: "Unavailable", safetyBackup: "Unavailable", recoveryPaths: recovery.recoveryPaths, recoveryRequired: blocked, error: { message: `The restore request is malformed and was not applied: ${error.message}${recovery.scanError ? ` Recovery-copy scan failed: ${recovery.scanError}` : ""}` } };
     try { await writeRestoreMarker(marker); }
     catch (markerError) {
       startupRecoveryBlocked = true;
-      await showRestoreRecovery(marker, `${marker.error.message}\nCould not record the failed request: ${markerError.message}`, { blocked: true, allowFresh: true });
+      const allowFresh = recovery.recoveryPaths.length === 0 && !recovery.scanError;
+      await showRestoreRecovery(marker, `${marker.error.message}\nCould not record the failed request: ${markerError.message}`, { blocked: true, allowFresh });
       return;
     }
     startupRecoveryBlocked = blocked;
@@ -197,12 +200,13 @@ async function applyPendingRestore() {
   }
   if (!validRestoreMarker(marker)) {
     const recovery = await findRecoveryPaths(marker);
-    const blocked = recovery.recoveryPaths.length > 0;
-    const failed = { version: 1, status: "failed", selected: typeof marker?.selected === "string" ? marker.selected : "Unavailable", safetyBackup: typeof marker?.safetyBackup === "string" ? marker.safetyBackup : "Unavailable", recoveryPaths: recovery.recoveryPaths, recoveryRequired: blocked, error: { message: "The restore request has an unsupported or incomplete format and was not applied." } };
+    const blocked = recovery.recoveryPaths.length > 0 || Boolean(recovery.scanError);
+    const failed = { version: 1, status: "failed", selected: typeof marker?.selected === "string" ? marker.selected : "Unavailable", safetyBackup: typeof marker?.safetyBackup === "string" ? marker.safetyBackup : "Unavailable", recoveryPaths: recovery.recoveryPaths, recoveryRequired: blocked, error: { message: `The restore request has an unsupported or incomplete format and was not applied.${recovery.scanError ? ` Recovery-copy scan failed: ${recovery.scanError}` : ""}` } };
     try { await writeRestoreMarker(failed); }
     catch (error) {
       startupRecoveryBlocked = true;
-      await showRestoreRecovery(failed, `${failed.error.message}\nCould not record the failed request: ${error.message}`, { blocked: true, allowFresh: true });
+      const allowFresh = recovery.recoveryPaths.length === 0 && !recovery.scanError;
+      await showRestoreRecovery(failed, `${failed.error.message}\nCould not record the failed request: ${error.message}`, { blocked: true, allowFresh });
       return;
     }
     startupRecoveryBlocked = blocked;
@@ -212,8 +216,8 @@ async function applyPendingRestore() {
 
   if (legacyPending) {
     const recovery = await findRecoveryPaths(marker);
-    if (recovery.recoveryPaths.length) {
-      marker = { ...marker, status: "failed", recoveryRequired: true, recoveryPaths: recovery.recoveryPaths, error: { message: "A previous restore may have stopped after creating recovery copies. The Backup was not applied again." } };
+    if (recovery.recoveryPaths.length || recovery.scanError) {
+      marker = { ...marker, status: "failed", recoveryRequired: true, recoveryPaths: recovery.recoveryPaths, error: { message: `A previous restore may have stopped before its recovery state could be confirmed. The Backup was not applied again.${recovery.scanError ? ` Recovery-copy scan failed: ${recovery.scanError}` : ""}` } };
       try { await writeRestoreMarker(marker); }
       catch (error) { marker.error.message += ` Could not update the request: ${error.message}`; }
       startupRecoveryBlocked = true;
@@ -258,7 +262,8 @@ async function applyPendingRestore() {
     if (restored) {
       try { await writeRestoreMarker(failed); }
       catch (markerError) {
-        await showRestoreRecovery(failed, `${error.message}\nCould not record the completed restore: ${markerError.message}`, { completed: true });
+        startupRecoveryBlocked = true;
+        await showRestoreRecovery(failed, `Backup applied, completion unrecorded: ${error.message}\nCould not record the completed restore: ${markerError.message}`, { blocked: true, completionUnrecorded: true });
         return;
       }
       try { await rm(pending, { force: true }); }

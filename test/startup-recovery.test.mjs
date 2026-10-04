@@ -64,7 +64,7 @@ async function harness() {
     export const writeFile = async (p, d, ...a) => { if (String(p).endsWith("pending-restore.json.tmp")) { const s = String(d); if (process.env.R05_FAIL_APPLY_WRITE && s.includes('"status":"applying"')) throw Object.assign(new Error("marker apply write failed"), { code: "EACCES" }); if (process.env.R05_FAIL_FAILED_WRITE && s.includes('"status":"failed"')) throw Object.assign(new Error("marker failed-state write failed"), { code: "EACCES" }); if (process.env.R05_FAIL_COMPLETED_WRITE && s.includes('"status":"completed"')) throw Object.assign(new Error("marker completed-state write failed"), { code: "EACCES" }); } return fs.writeFile(p, d, ...a); };
     export const rename = async (a, b) => { if (process.env.R05_FAIL_TRANSITION && String(b).endsWith("pending-restore.json")) throw Object.assign(new Error("marker transition failed"), { code: "EACCES" }); return fs.rename(a, b); };
     export const rm = async (p, ...a) => { if (process.env.R05_FAIL_REMOVE && String(p).endsWith("pending-restore.json")) throw Object.assign(new Error("marker remove failed"), { code: "EACCES" }); return fs.rm(p, ...a); };
-    export const readdir = fs.readdir;`);
+    export const readdir = async (p, ...a) => { if (process.env.R05_FAIL_SCAN && String(p) === process.env.R05_USER_DATA) throw Object.assign(new Error("recovery-copy scan failed"), { code: "EACCES" }); return fs.readdir(p, ...a); };`);
   await writeFile(runner, `import { writeFile } from "node:fs/promises";
     async function bounded(promise, label) { let timer; try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label + " timeout")), 5000); })]); } finally { clearTimeout(timer); } }
     await import(process.env.R05_MAIN_URL); const state = globalThis.__r05;
@@ -294,4 +294,59 @@ test("malformed pending marker is archived as failed and allows choosing a fresh
   const replaced = JSON.parse(await readFile(markerPath, "utf8"));
   assert.equal(replaced.status, "pending");
   assert.equal(replaced.selected, join(h.root, "fresh-backup"));
+});
+
+test("failed recovery-copy scans make malformed, invalid, and legacy requests unknown", async () => {
+  const markers = [
+    "{",
+    JSON.stringify({ version: 99, status: "applying", selected: "selected" }),
+    JSON.stringify({ selected: "selected", safetyBackup: "safety" }),
+  ];
+  for (const value of markers) {
+    const h = await harness();
+    const userData = join(h.root, "user");
+    await mkdir(userData, { recursive: true });
+    await writeFile(join(userData, "pending-restore.json"), value);
+    const result = await launch(h, userData, { R05_FAIL_SCAN: "1", R05_FAIL_FAILED_WRITE: "1", R05_DIALOG_RESPONSE: "cancel" });
+    assert.equal(result.windows, 0);
+    assert.deepEqual(await attempts(userData), []);
+    assert.ok(result.dialogs[0].detail.includes("Could not scan for retained recovery copies"));
+    assert.equal(result.dialogs[0].buttons.includes("Choose another Backup"), false);
+  }
+});
+
+test("failed marker writes allow choosing fresh only when the recovery scan is clear", async () => {
+  const clear = await harness();
+  const clearUserData = join(clear.root, "user");
+  await mkdir(clearUserData, { recursive: true });
+  await writeFile(join(clearUserData, "pending-restore.json"), "{");
+  const selected = join(clear.root, "fresh-backup");
+  const clearResult = await launch(clear, clearUserData, { R05_FAIL_FAILED_WRITE: "1", R05_DIALOG_RESPONSE: "2", R05_NEW_SELECTION: selected });
+  assert.equal(clearResult.relaunch, true);
+  assert.ok(clearResult.dialogs[0].buttons.includes("Choose another Backup"));
+
+  const retained = await harness();
+  const retainedUserData = join(retained.root, "user");
+  await mkdir(join(retainedUserData, ".restore-rollback-retained"), { recursive: true });
+  await writeFile(join(retainedUserData, "pending-restore.json"), "{");
+  const retainedResult = await launch(retained, retainedUserData, { R05_FAIL_FAILED_WRITE: "1", R05_DIALOG_RESPONSE: "2", R05_NEW_SELECTION: join(retained.root, "must-not-select") });
+  assert.equal(retainedResult.relaunch, undefined);
+  assert.equal(retainedResult.quits, 1);
+  assert.equal(retainedResult.dialogs[0].buttons.includes("Choose another Backup"), false);
+});
+
+test("an unrecorded completed restore stays blocked and is never replayed", async () => {
+  const h = await harness();
+  const userData = join(h.root, "user");
+  const selected = join(h.root, "selected");
+  const markerPath = await pending(userData, selected);
+  const first = await launch(h, userData, { R05_MODE: "restoredCleanup", R05_FAIL_COMPLETED_WRITE: "1", R05_DIALOG_RESPONSE: "cancel" });
+  assert.equal(JSON.parse(await readFile(markerPath, "utf8")).status, "applying");
+  assert.equal(first.windows, 0);
+  assert.ok(first.dialogs[0].title.includes("status needs review"));
+  assert.match(first.dialogs[0].message, /Backup was applied, but its completion could not be recorded/i);
+  assert.ok(first.dialogs[0].detail.includes(join(userData, ".restore-rollback-")));
+  const second = await launch(h, userData, { R05_DIALOG_RESPONSE: "cancel" });
+  assert.equal(second.windows, 0);
+  assert.deepEqual(await attempts(userData), [selected]);
 });
