@@ -1,0 +1,129 @@
+name: Validate Windows update without publishing
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build, verify, install, upgrade, and uninstall
+    runs-on: windows-2025
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: PokeRogue-Electron
+    env:
+      POKEROGUE_GAME_PATH: ${{ github.workspace }}\game
+    steps:
+      - name: Check out the current wrapper branch
+        uses: actions/checkout@v7
+        with:
+          path: PokeRogue-Electron
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: PokeRogue-Electron/package-lock.json
+
+      - name: Read exact upstream pins
+        id: pins
+        run: |
+          node --input-type=module -e "import { appendFileSync, readFileSync } from 'node:fs'; const pins = JSON.parse(readFileSync('build/local-macos-build.json', 'utf8')); for (const key of ['gameRevision', 'assetsRevision', 'localesRevision']) if (!/^[a-f0-9]{40}$/.test(pins[key])) throw new Error('Invalid revision ' + key); if (!/^\d+\.\d+\.\d+$/.test(pins.pnpmVersion)) throw new Error('Invalid pnpm version'); appendFileSync(process.env.GITHUB_OUTPUT, 'game=' + pins.gameRevision + '\npnpm=' + pins.pnpmVersion + '\n');"
+
+      - name: Check out pinned upstream game and submodules
+        uses: actions/checkout@v7
+        with:
+          repository: gaboopa/pokerogue
+          ref: ${{ steps.pins.outputs.game }}
+          submodules: recursive
+          path: game
+          persist-credentials: false
+
+      - name: Verify source revisions
+        run: |
+          node --input-type=module -e "import { execFileSync } from 'node:child_process'; import { readFileSync } from 'node:fs'; const pins = JSON.parse(readFileSync('build/local-macos-build.json', 'utf8')); for (const [name, cwd] of [['game', process.env.POKEROGUE_GAME_PATH], ['assets', process.env.POKEROGUE_GAME_PATH + '/assets'], ['locales', process.env.POKEROGUE_GAME_PATH + '/locales']]) { const actual = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim(); if (actual !== pins[name + 'Revision']) throw new Error(name + ' pin mismatch: ' + actual); }"
+
+      - name: Install locked dependencies
+        env:
+          PNPM_VERSION: ${{ steps.pins.outputs.pnpm }}
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+          npm exec --yes --package="pnpm@$env:PNPM_VERSION" -- pnpm --dir "$env:POKEROGUE_GAME_PATH" install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned pnpm install failed' }
+
+      - name: Run wrapper tests and native Electron probes
+        run: |
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw 'Wrapper test suite failed' }
+
+      - name: Build the upstream game and Windows x64 release installer
+        run: |
+          npm run package:win
+          if ($LASTEXITCODE -ne 0) { throw 'Windows release packaging failed' }
+
+      - name: Generate and validate the release manifest and installer bytes
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read package version' }
+          $installer = "release/PokeRogue-Offline-$version-windows-x64.exe"
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw "Expected installer is missing: $installer" }
+          $fileName = Split-Path -Leaf $installer
+          $downloadUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v$version/$fileName"
+          npm run release:manifest -- $installer $downloadUrl windows x64
+          if ($LASTEXITCODE -ne 0) { throw 'Release manifest generation failed' }
+
+          $validation = @'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { createReadStream, readFileSync, statSync } from 'node:fs';
+          import { resolve } from 'node:path';
+          import { assertValidRelease } from './src/release-contract.mjs';
+          const [manifestPath, installerPath] = process.argv.slice(2);
+          const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+          const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+          const revisions = JSON.parse(readFileSync('staging/revisions.json', 'utf8'));
+          assertValidRelease(manifest, { version: packageJson.version, revisions });
+          assert.equal(manifest.artifacts.length, 1);
+          const artifact = manifest.artifacts[0];
+          assert.equal(artifact.platform, 'windows');
+          assert.equal(artifact.arch, 'x64');
+          assert.equal(artifact.fileName, installerPath.split(/[\\/]/).at(-1));
+          assert.equal(artifact.downloadUrl, `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/v${packageJson.version}/${artifact.fileName}`);
+          assert.equal(artifact.size, statSync(installerPath).size);
+          const hash = createHash('sha256');
+          for await (const chunk of createReadStream(resolve(installerPath))) hash.update(chunk);
+          assert.equal(artifact.sha256, hash.digest('hex'));
+          console.log(`Validated ${artifact.fileName}: ${artifact.size} bytes, ${artifact.sha256}`);
+          '@
+          $validation | node --input-type=module - release/release-manifest.json $installer
+          if ($LASTEXITCODE -ne 0) { throw 'Generated release manifest did not validate against the built artifact' }
+
+      - name: Run fresh hosted install, upgrade, and uninstall checks
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read package version' }
+          ./scripts/validate-windows-install.ps1 -NewInstallerPath "release/PokeRogue-Offline-$version-windows-x64.exe" -ReleaseManifestPath 'release/release-manifest.json'
+
+      - name: Retain installer, manifest, and native validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-validation-${{ github.sha }}
+          path: |
+            PokeRogue-Electron/release/*-windows-x64.exe
+            PokeRogue-Electron/release/release-manifest.json
+            ${{ runner.temp }}/pokerogue-windows-validation-${{ github.run_id }}-${{ github.run_attempt }}/windows-install-validation.json
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: warn
