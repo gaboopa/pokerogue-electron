@@ -2,13 +2,11 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Arch, build, Platform } from "electron-builder";
-import { prepareWindowsCache, WINDOWS_CACHE_RELATIVE_PATH, WINDOWS_CACHE_SCHEMA_VERSION } from "./package-win-cache.mjs";
+import { assertDistributableArtifactName, NON_RELEASE_MARKER } from "../src/release-contract.mjs";
+import { prepareWindowsCache } from "./package-win-cache.mjs";
 import { wrapperRoot } from "./lib.mjs";
 
 export const WINDOWS_PACKAGE_MODES = Object.freeze(["release", "smoke", "staged"]);
-export { WINDOWS_CACHE_SCHEMA_VERSION, WINDOWS_CACHE_RELATIVE_PATH };
-import { assertDistributableArtifactName, NON_RELEASE_MARKER } from "./release-artifact.mjs";
-export { assertDistributableArtifactName };
 
 export function createWindowsBuildConfig(baseBuild, mode) {
   if (!WINDOWS_PACKAGE_MODES.includes(mode)) throw new Error(`Unknown Windows package mode: ${mode}`);

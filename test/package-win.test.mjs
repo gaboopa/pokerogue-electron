@@ -4,9 +4,9 @@ import { cp, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  assertDistributableArtifactName,
   createWindowsBuildConfig,
 } from "../scripts/package-win.mjs";
+import { assertDistributableArtifactName } from "../src/release-contract.mjs";
 import {
   WINDOWS_CACHE_RELATIVE_PATH,
   createRobocopyArguments,
