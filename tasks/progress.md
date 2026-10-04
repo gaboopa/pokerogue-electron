@@ -27,7 +27,9 @@ This is not native release clearance.
 | R18-R20 #35-#37 | Four user-flow continuations and packaged proof remain open and sequential |
 | S01, S02a, S02b, S03, S04, S05, S06a, S06b, P01 | All nine integrated and issues #21-#29 closed; combined 119/119 passing |
 
-Dispatch policy after the usage-limit interruption: one active Luna worker, with focused verification and primary combined checks at integration checkpoints. R16/R17 are complete. R18 #35 is the next slice; use a fresh Luna session with a focused brief at this completed task boundary. Other sessions remain stopped. Read current agent/tool status and Git state before assuming a worker remains live.
+Dispatch policy after the usage-limit interruption: one active Luna worker, with focused verification and primary combined checks at integration checkpoints. R16/R17 are complete. The fresh R18 #35 session is correcting its first draft after review. Other sessions remain stopped. Read current agent/tool status and Git state before assuming a worker remains live.
+
+R18 review checkpoint: candidate 80d89b1 is not integrated. Its focused coordinator tests passed 4/4, but the full candidate suite passed 137/138. Review found a worker argument mismatch, missing main-flow behavioral coverage, and continuation ownership/failure handling that needs correction. The same single Luna session is repairing these issues. The scope includes a fourth file, the existing window-lifecycle test, to replace its live-copy expectation while retaining destroyed-window and cancellation checks. The primary branch remains at the verified 134/134 checkpoint.
 
 Review evidence: restore/download/keyboard/cheat guard mutations failed their regression suites and original bytes were restored. Inventory corruption rejection was independently exercised through the worker's disposable mutated module. Combined tests run on integrated code.
 
