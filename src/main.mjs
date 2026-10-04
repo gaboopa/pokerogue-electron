@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell } from "electron";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_ORIGIN, PRODUCT_NAME, UPDATE_REPOSITORY } from "./constants.mjs";
@@ -22,6 +22,8 @@ let keymapMtime = 0;
 const chartWindows = new Map();
 let cheatController;
 let startupRecoveryBlocked = false;
+let startupReady = false;
+let startupRestarting = false;
 
 function paths() {
   const userData = app.getPath("userData");
@@ -86,6 +88,7 @@ async function chooseAndRestore() {
   const pending = join(paths().userData, "pending-restore.json");
   await writeRestoreMarker({ version: 1, status: "pending", selected, safetyBackup });
   await dialog.showMessageBox(mainWindow, { type: "info", title: "Restore ready", message: "The application will restart to restore this backup." });
+  startupRestarting = true;
   app.relaunch();
   app.quit();
   return { restored: true };
@@ -102,29 +105,51 @@ async function writeRestoreMarker(marker) {
   await rename(temporary, pending);
 }
 
-async function showRestoreRecovery(marker, message, { blocked = false, allowFresh = false } = {}) {
+async function findRecoveryPaths(marker) {
+  const recoveryPaths = new Set([
+    ...(Array.isArray(marker?.recoveryPaths) ? marker.recoveryPaths.filter(path => typeof path === "string") : []),
+  ]);
+  let scanError;
+  try {
+    for (const entry of await readdir(paths().userData, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name.startsWith(".restore-rollback-")) recoveryPaths.add(join(paths().userData, entry.name));
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") scanError = error.message;
+  }
+  if (scanError && typeof marker?.recoveryPath === "string") recoveryPaths.add(marker.recoveryPath);
+  return { recoveryPaths: [...recoveryPaths], scanError };
+}
+
+async function showRestoreRecovery(marker, message, { blocked = false, allowFresh = false, completed = false } = {}) {
   const userData = paths().userData;
   const safetyBackup = typeof marker?.safetyBackup === "string" ? marker.safetyBackup : "Unavailable";
   const selected = typeof marker?.selected === "string" ? marker.selected : "Unavailable";
-  const recoveryPath = typeof marker?.recoveryPath === "string" ? marker.recoveryPath : "Unavailable";
+  const { recoveryPaths, scanError } = await findRecoveryPaths(marker);
+  const recoveryCopies = recoveryPaths.length ? recoveryPaths.join("\n") : "None found";
+  const scanNote = scanError ? `\nCould not scan for retained recovery copies: ${scanError}` : "";
   const result = await dialog.showMessageBox({
-    type: blocked ? "error" : "warning",
-    title: blocked ? "Save recovery required" : "Backup restore failed",
+    type: blocked ? "error" : completed ? "info" : "warning",
+    title: blocked ? "Save recovery required" : completed ? "Backup restore completed with a warning" : "Backup restore failed",
     message: blocked
       ? "The app cannot safely load Save data because a restore may be incomplete."
-      : "The requested Backup was not restored. Your current Save data is available.",
-    detail: `${message}\n\nSelected Backup: ${selected}\nSafety Backup: ${safetyBackup}\nRecovery copies: ${recoveryPath}\nSave folder: ${userData}`,
+      : completed ? "The Backup was restored. Review the detail for the recovery state." : "The requested Backup was not restored. Your current Save data is available.",
+    detail: `${message}${scanNote}\n\nSelected Backup: ${selected}\nSafety Backup: ${safetyBackup}\nRecovery copies: ${recoveryCopies}\nSave folder: ${userData}`,
     buttons: blocked
       ? ["Open Save Folder", "Open Safety Backup", ...(allowFresh ? ["Choose another Backup"] : []), "Quit"]
-      : ["Open Safety Backup", "Choose another Backup", "Continue"],
-    defaultId: blocked ? 0 : 2,
-    cancelId: blocked ? 2 : 2,
+      : completed ? ["Open Recovery Folder", "Continue"] : ["Open Safety Backup", "Choose another Backup", "Continue"],
+    defaultId: blocked ? 0 : completed ? 1 : 2,
+    cancelId: blocked ? (allowFresh ? 3 : 2) : completed ? 1 : 2,
   });
   if (blocked) {
     if (result.response === 0) await shell.openPath(userData);
     else if (result.response === 1 && safetyBackup !== "Unavailable") await shell.openPath(safetyBackup);
     else if (allowFresh && result.response === 2) await chooseAndRestore();
     else app.quit();
+    return;
+  }
+  if (completed) {
+    if (result.response === 0 && recoveryPaths[0]) await shell.openPath(recoveryPaths[0]);
     return;
   }
   if (result.response === 0 && safetyBackup !== "Unavailable") await shell.openPath(safetyBackup);
@@ -153,34 +178,53 @@ async function applyPendingRestore() {
   let marker;
   try { marker = JSON.parse(raw); }
   catch (error) {
-    marker = { version: 1, status: "failed", selected: "Unavailable", safetyBackup: "Unavailable", error: { message: `The restore request is malformed and was not applied: ${error.message}` } };
+    const recovery = await findRecoveryPaths(null);
+    const blocked = recovery.recoveryPaths.length > 0;
+    marker = { version: 1, status: "failed", selected: "Unavailable", safetyBackup: "Unavailable", recoveryPaths: recovery.recoveryPaths, recoveryRequired: blocked, error: { message: `The restore request is malformed and was not applied: ${error.message}` } };
     try { await writeRestoreMarker(marker); }
     catch (markerError) {
       startupRecoveryBlocked = true;
       await showRestoreRecovery(marker, `${marker.error.message}\nCould not record the failed request: ${markerError.message}`, { blocked: true, allowFresh: true });
       return;
     }
-    await showRestoreRecovery(marker, marker.error.message);
+    startupRecoveryBlocked = blocked;
+    await showRestoreRecovery(marker, marker.error.message, { blocked });
     return;
   }
-  if (marker && typeof marker === "object" && !Array.isArray(marker) && marker.status === undefined && typeof marker.selected === "string") {
+  const legacyPending = marker && typeof marker === "object" && !Array.isArray(marker) && marker.status === undefined && typeof marker.selected === "string";
+  if (legacyPending) {
     marker = { version: 1, status: "pending", selected: marker.selected, ...(typeof marker.safetyBackup === "string" ? { safetyBackup: marker.safetyBackup } : {}) };
   }
   if (!validRestoreMarker(marker)) {
-    const failed = { version: 1, status: "failed", selected: typeof marker?.selected === "string" ? marker.selected : "Unavailable", safetyBackup: typeof marker?.safetyBackup === "string" ? marker.safetyBackup : "Unavailable", error: { message: "The restore request has an unsupported or incomplete format and was not applied." } };
+    const recovery = await findRecoveryPaths(marker);
+    const blocked = recovery.recoveryPaths.length > 0;
+    const failed = { version: 1, status: "failed", selected: typeof marker?.selected === "string" ? marker.selected : "Unavailable", safetyBackup: typeof marker?.safetyBackup === "string" ? marker.safetyBackup : "Unavailable", recoveryPaths: recovery.recoveryPaths, recoveryRequired: blocked, error: { message: "The restore request has an unsupported or incomplete format and was not applied." } };
     try { await writeRestoreMarker(failed); }
     catch (error) {
       startupRecoveryBlocked = true;
       await showRestoreRecovery(failed, `${failed.error.message}\nCould not record the failed request: ${error.message}`, { blocked: true, allowFresh: true });
       return;
     }
-    await showRestoreRecovery(failed, failed.error.message);
+    startupRecoveryBlocked = blocked;
+    await showRestoreRecovery(failed, failed.error.message, { blocked });
     return;
+  }
+
+  if (legacyPending) {
+    const recovery = await findRecoveryPaths(marker);
+    if (recovery.recoveryPaths.length) {
+      marker = { ...marker, status: "failed", recoveryRequired: true, recoveryPaths: recovery.recoveryPaths, error: { message: "A previous restore may have stopped after creating recovery copies. The Backup was not applied again." } };
+      try { await writeRestoreMarker(marker); }
+      catch (error) { marker.error.message += ` Could not update the request: ${error.message}`; }
+      startupRecoveryBlocked = true;
+      await showRestoreRecovery(marker, marker.error.message, { blocked: true });
+      return;
+    }
   }
 
   if (marker.status === "completed") {
     try { await rm(pending, { force: true }); }
-    catch (error) { await showRestoreRecovery(marker, `The restore completed, but its request could not be removed: ${error.message}`); }
+    catch (error) { await showRestoreRecovery(marker, `The restore completed, but its request could not be removed: ${error.message}`, { completed: true }); }
     return;
   }
   if (marker.status === "failed") {
@@ -195,6 +239,8 @@ async function applyPendingRestore() {
   }
 
   try {
+    const recoveryPath = join(paths().userData, `.restore-rollback-${Date.now()}`);
+    marker = { ...marker, recoveryPath };
     await writeRestoreMarker({ ...marker, status: "applying" });
   } catch (error) {
     startupRecoveryBlocked = true;
@@ -203,14 +249,25 @@ async function applyPendingRestore() {
   }
 
   try {
-    await restoreBackup(paths().userData, marker.selected);
+    await restoreBackup(paths().userData, marker.selected, { rollbackPath: marker.recoveryPath });
   } catch (error) {
     const restored = error instanceof BackupRestoreError && error.restored;
     const recoveryRequired = !(error instanceof BackupRestoreError) || error.recoveryRequired;
     const failed = { ...marker, status: restored ? "completed" : "failed", recoveryRequired, error: { message: error.message }, ...(error.recoveryPath ? { recoveryPath: error.recoveryPath } : {}) };
+    if (!error.recoveryPath && !error.restored) delete failed.recoveryPath;
+    if (restored) {
+      try { await writeRestoreMarker(failed); }
+      catch (markerError) {
+        await showRestoreRecovery(failed, `${error.message}\nCould not record the completed restore: ${markerError.message}`, { completed: true });
+        return;
+      }
+      try { await rm(pending, { force: true }); }
+      catch (markerError) { await showRestoreRecovery(failed, `${error.message}\nCould not remove the completed request: ${markerError.message}`, { completed: true }); return; }
+      await showRestoreRecovery(failed, error.message, { completed: true });
+      return;
+    }
     try {
       await writeRestoreMarker(failed);
-      if (restored) await rm(pending, { force: true });
     } catch (markerError) {
       startupRecoveryBlocked = true;
       const allowFresh = error instanceof BackupRestoreError && !error.recoveryRequired && !error.restored;
@@ -232,7 +289,7 @@ async function applyPendingRestore() {
   try {
     await rm(pending, { force: true });
   } catch (error) {
-    await showRestoreRecovery({ ...marker, status: "completed" }, `The restore completed, but its request could not be removed: ${error.message}`);
+    await showRestoreRecovery({ ...marker, status: "completed" }, `The restore completed, but its request could not be removed: ${error.message}`, { completed: true });
   }
 }
 
@@ -322,7 +379,7 @@ async function createWindow() {
 app.whenReady().then(async () => {
   await mkdir(paths().backupRoot, { recursive: true });
   await applyPendingRestore();
-  if (startupRecoveryBlocked) return;
+  if (startupRestarting || startupRecoveryBlocked) return;
   await reloadKeybindings();
   registerGameProtocol(protocol, gameRoot);
   installNetworkPolicy();
@@ -336,7 +393,8 @@ app.whenReady().then(async () => {
   registerIpc();
   createMenu();
   await createWindow();
+  startupReady = true;
 });
 
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-app.on("activate", () => { if (!startupRecoveryBlocked && BrowserWindow.getAllWindows().length === 0) createWindow(); });
+app.on("activate", () => { if (startupReady && !startupRecoveryBlocked && BrowserWindow.getAllWindows().length === 0) createWindow(); });

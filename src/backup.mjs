@@ -173,6 +173,7 @@ export async function validateBackup(backupPath) {
 }
 
 export async function restoreBackup(userData, backupPath, fs = filesystem) {
+  const operations = { ...filesystem, ...fs };
   let manifest;
   try {
     manifest = await validateBackup(backupPath);
@@ -183,7 +184,7 @@ export async function restoreBackup(userData, backupPath, fs = filesystem) {
   const movedOriginals = new Set();
   const attemptedCopies = new Set();
   try {
-    await fs.mkdir(rollback, { recursive: true });
+    await operations.mkdir(rollback, { recursive: true });
   } catch (error) {
     throw new BackupRestoreError(error.message, { cause: error });
   }
@@ -191,20 +192,21 @@ export async function restoreBackup(userData, backupPath, fs = filesystem) {
     for (const name of manifest.included) {
       const current = join(userData, name);
       try {
-        await fs.rename(current, join(rollback, basename(name)));
+        await operations.rename(current, join(rollback, basename(name)));
         movedOriginals.add(name);
       } catch (error) {
         if (error.code !== "ENOENT") throw error;
       }
       attemptedCopies.add(name);
-      await fs.cp(join(backupPath, "data", name), current, { recursive: true, errorOnExist: true });
+      await operations.cp(join(backupPath, "data", name), current, { recursive: true, errorOnExist: true });
     }
   } catch (error) {
     const recoveryErrors = [];
+    let cleanupError;
     for (const name of [...manifest.included].reverse()) {
       if (attemptedCopies.has(name)) {
         try {
-          await fs.rm(join(userData, name), { recursive: true, force: true });
+          await operations.rm(join(userData, name), { recursive: true, force: true });
         } catch (rollbackError) {
           recoveryErrors.push(`${name}: ${rollbackError.message}`);
           continue;
@@ -212,7 +214,7 @@ export async function restoreBackup(userData, backupPath, fs = filesystem) {
       }
       if (movedOriginals.has(name)) {
         try {
-          await fs.rename(join(rollback, basename(name)), join(userData, name));
+          await operations.rename(join(rollback, basename(name)), join(userData, name));
         } catch (rollbackError) {
           recoveryErrors.push(`${name}: ${rollbackError.message}`);
         }
@@ -220,9 +222,9 @@ export async function restoreBackup(userData, backupPath, fs = filesystem) {
     }
     if (!recoveryErrors.length) {
       try {
-        await fs.rm(rollback, { recursive: true, force: true });
+        await operations.rm(rollback, { recursive: true, force: true });
       } catch (rollbackError) {
-        recoveryErrors.push(`recovery cleanup: ${rollbackError.message}`);
+        cleanupError = rollbackError;
       }
     }
     if (recoveryErrors.length) {
@@ -233,10 +235,17 @@ export async function restoreBackup(userData, backupPath, fs = filesystem) {
         recoveryErrors
       });
     }
+    if (cleanupError) {
+      throw new BackupRestoreError(`Restore failed: ${error.message}. Rollback completed, but recovery cleanup failed: ${cleanupError.message}. Recovery data retained at ${rollback}`, {
+        cause: error,
+        recoveryPath: rollback,
+        recoveryErrors: [cleanupError.message]
+      });
+    }
     throw new BackupRestoreError(error.message, { cause: error });
   }
   try {
-    await fs.rm(rollback, { recursive: true, force: true });
+    await operations.rm(rollback, { recursive: true, force: true });
   } catch (error) {
     throw new BackupRestoreError(`Restore completed, but recovery cleanup failed at ${rollback}: ${error.message}`, {
       cause: error,

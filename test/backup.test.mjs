@@ -188,6 +188,27 @@ test("restore reports and retains recovery originals when rollback fails", async
   assert.equal(await readFile(join(userData, "untouched", "marker"), "utf8"), "leave me");
 });
 
+test("restore permits startup when only cleanup of a fully restored rollback copy fails", async () => {
+  const { userData, backup } = await makeFixture();
+  const rollbackPath = join(userData, ".restore-rollback-test");
+  const filesystem = faultableFilesystem(userData, rollbackPath, { failCopy: 2 });
+  const originalRemove = filesystem.rm;
+  filesystem.rm = async (path, options) => {
+    if (path === rollbackPath) throw Object.assign(new Error("injected recovery cleanup failure"), { code: "EIO" });
+    return originalRemove(path, options);
+  };
+  await assert.rejects(restoreBackup(userData, backup, filesystem), error => {
+    assert.ok(error instanceof BackupRestoreError);
+    assert.equal(error.recoveryRequired, false);
+    assert.equal(error.restored, false);
+    assert.equal(error.recoveryPath, rollbackPath);
+    assert.match(error.message, /rollback completed.*cleanup failed/i);
+    return true;
+  });
+  await assertChangedFixtureRestored(userData);
+  assert.deepEqual(await readdir(rollbackPath), []);
+});
+
 test("successful restore changes declared directories and removes recovery copies", async () => {
   const root = await mkdtemp(join(tmpdir(), "pokerogue-restore-declared-"));
   const userData = join(root, "user");
