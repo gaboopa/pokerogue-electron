@@ -105,6 +105,10 @@ Get-FileHash .\PokeRogue-Offline-*-windows-x64.exe -Algorithm SHA256
 
 Normally, no. Saves are kept in your user application-data directory, outside the installation folder. They can still be lost if that data directory is manually deleted or removed by a cleanup program, so keeping backups is recommended.
 
+### A Backup restore failed or interrupted
+
+If a selected Backup is missing or fails verification, the app records the failed request and opens normally with the current Save data. Choose **Choose another Backup** in the recovery message to select a valid Backup. If the app reports that recovery is required, it will not load the game until you inspect the Save folder, the selected Backup, and the safety Backup paths shown in the message. The safety Backup is created before a restore starts.
+
 ### Why is an older installer still in my Downloads folder?
 
 Updating replaces the installed application, but it does not delete files you downloaded. You can safely delete older `PokeRogue-Offline-*-windows-x64.exe` files yourself after the newer version is installed and working.

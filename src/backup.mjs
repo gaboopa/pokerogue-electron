@@ -7,6 +7,17 @@ export const STORAGE_DIRECTORIES = ["Local Storage", "IndexedDB", "Session Stora
 const filesystem = { cp, mkdir, rename, rm };
 const CURRENT_SCHEMA_VERSION = 2;
 
+export class BackupRestoreError extends Error {
+  constructor(message, { cause, recoveryRequired = false, recoveryPath, recoveryErrors = [], restored = false } = {}) {
+    super(message, { cause });
+    this.name = "BackupRestoreError";
+    this.recoveryRequired = recoveryRequired;
+    this.recoveryPath = recoveryPath;
+    this.recoveryErrors = recoveryErrors;
+    this.restored = restored;
+  }
+}
+
 function compareNames(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -162,11 +173,20 @@ export async function validateBackup(backupPath) {
 }
 
 export async function restoreBackup(userData, backupPath, fs = filesystem) {
-  const manifest = await validateBackup(backupPath);
+  let manifest;
+  try {
+    manifest = await validateBackup(backupPath);
+  } catch (error) {
+    throw new BackupRestoreError(error.message, { cause: error });
+  }
   const rollback = fs.rollbackPath ?? join(userData, `.restore-rollback-${Date.now()}`);
   const movedOriginals = new Set();
   const attemptedCopies = new Set();
-  await fs.mkdir(rollback, { recursive: true });
+  try {
+    await fs.mkdir(rollback, { recursive: true });
+  } catch (error) {
+    throw new BackupRestoreError(error.message, { cause: error });
+  }
   try {
     for (const name of manifest.included) {
       const current = join(userData, name);
@@ -206,9 +226,22 @@ export async function restoreBackup(userData, backupPath, fs = filesystem) {
       }
     }
     if (recoveryErrors.length) {
-      throw new Error(`Restore failed: ${error.message}. Rollback also failed: ${recoveryErrors.join("; ")}. Recovery data retained at ${rollback}`, { cause: error });
+      throw new BackupRestoreError(`Restore failed: ${error.message}. Rollback also failed: ${recoveryErrors.join("; ")}. Recovery data retained at ${rollback}`, {
+        cause: error,
+        recoveryRequired: true,
+        recoveryPath: rollback,
+        recoveryErrors
+      });
     }
-    throw error;
+    throw new BackupRestoreError(error.message, { cause: error });
   }
-  await fs.rm(rollback, { recursive: true, force: true });
+  try {
+    await fs.rm(rollback, { recursive: true, force: true });
+  } catch (error) {
+    throw new BackupRestoreError(`Restore completed, but recovery cleanup failed at ${rollback}: ${error.message}`, {
+      cause: error,
+      recoveryPath: rollback,
+      restored: true
+    });
+  }
 }

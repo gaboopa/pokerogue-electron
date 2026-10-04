@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { cp, mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createBackup, restoreBackup, validateBackup } from "../src/backup.mjs";
+import { BackupRestoreError, createBackup, restoreBackup, validateBackup } from "../src/backup.mjs";
 
 test("save backups validate and restore without installation files", async () => {
   const root = await mkdtemp(join(tmpdir(), "pokerogue-backup-"));
@@ -15,6 +15,28 @@ test("save backups validate and restore without installation files", async () =>
   assert.equal((await validateBackup(backup)).schemaVersion, 2);
   await writeFile(join(userData, "Local Storage", "save"), "changed");
   await restoreBackup(userData, backup);
+  assert.equal(await readFile(join(userData, "Local Storage", "save"), "utf8"), "original");
+});
+
+test("missing and invalid Backups report failures before mutation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pokerogue-backup-preflight-"));
+  const userData = join(root, "user");
+  await mkdir(join(userData, "Local Storage"), { recursive: true });
+  await writeFile(join(userData, "Local Storage", "save"), "original");
+  await assert.rejects(restoreBackup(userData, join(root, "missing")), error => {
+    assert.ok(error instanceof BackupRestoreError);
+    assert.equal(error.recoveryRequired, false);
+    assert.equal(error.restored, false);
+    return true;
+  });
+  const backup = await createBackup(userData, join(root, "backups"));
+  await writeFile(join(backup, "manifest.json"), "null");
+  await assert.rejects(restoreBackup(userData, backup), error => {
+    assert.ok(error instanceof BackupRestoreError);
+    assert.equal(error.recoveryRequired, false);
+    assert.equal(error.restored, false);
+    return true;
+  });
   assert.equal(await readFile(join(userData, "Local Storage", "save"), "utf8"), "original");
 });
 
@@ -130,7 +152,12 @@ test("restore rolls back a partial copy and leaves originally absent directories
   await rm(join(userData, "Session Storage"), { recursive: true });
   const rollbackPath = join(userData, ".restore-rollback-test");
   const filesystem = faultableFilesystem(userData, rollbackPath, { failCopy: 3 });
-  await assert.rejects(restoreBackup(userData, backup, filesystem));
+  await assert.rejects(restoreBackup(userData, backup, filesystem), error => {
+    assert.ok(error instanceof BackupRestoreError);
+    assert.equal(error.recoveryRequired, false);
+    assert.equal(error.restored, false);
+    return true;
+  });
   assert.equal(await readFile(join(userData, "Local Storage", "save"), "utf8"), "changed Local Storage");
   assert.equal(await readFile(join(userData, "Local Storage", "extra"), "utf8"), "changed extra Local Storage");
   assert.equal(await readFile(join(userData, "IndexedDB", "save"), "utf8"), "changed IndexedDB");
@@ -143,6 +170,10 @@ test("restore reports and retains recovery originals when rollback fails", async
   const rollbackPath = join(userData, ".restore-rollback-test");
   const filesystem = faultableFilesystem(userData, rollbackPath, { failCopy: 2, failRollback: true });
   await assert.rejects(restoreBackup(userData, backup, filesystem), error => {
+    assert.ok(error instanceof BackupRestoreError);
+    assert.equal(error.recoveryRequired, true);
+    assert.equal(error.restored, false);
+    assert.equal(error.recoveryPath, rollbackPath);
     assert.match(error.message, /injected partial copy failure/);
     assert.match(error.message, /injected rollback failure/);
     assert.match(error.message, /\.restore-rollback-/);
@@ -171,6 +202,25 @@ test("successful restore changes declared directories and removes recovery copie
   assert.equal(await readFile(join(userData, "Local Storage", "save"), "utf8"), "backup bytes");
   assert.equal(await readFile(join(userData, "IndexedDB", "keep"), "utf8"), "untouched");
   await assert.rejects(readdir(rollbackPath), { code: "ENOENT" });
+});
+
+test("restore distinguishes a completed restore with retained recovery copies", async () => {
+  const { userData, backup } = await makeFixture();
+  const rollbackPath = join(userData, ".restore-rollback-test");
+  const filesystem = faultableFilesystem(userData, rollbackPath);
+  filesystem.rm = async (path, options) => {
+    if (path === rollbackPath) throw Object.assign(new Error("injected cleanup failure"), { code: "EIO" });
+    return rm(path, options);
+  };
+  await assert.rejects(restoreBackup(userData, backup, filesystem), error => {
+    assert.ok(error instanceof BackupRestoreError);
+    assert.equal(error.recoveryRequired, false);
+    assert.equal(error.restored, true);
+    assert.equal(error.recoveryPath, rollbackPath);
+    return true;
+  });
+  assert.equal(await readFile(join(userData, "Local Storage", "save"), "utf8"), "original Local Storage");
+  assert.equal(await readFile(join(rollbackPath, "Local Storage", "save"), "utf8"), "changed Local Storage");
 });
 
 test("restore rejects an empty inventory hiding backed-up data before target mutation", async () => {
