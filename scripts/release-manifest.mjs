@@ -1,7 +1,8 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { wrapperRoot } from "./lib.mjs";
-import { assertManifestCompatibility, createArtifactRecord, createManifest, mergeArtifact } from "./release-manifest-lib.mjs";
+import { assertValidRelease } from "../src/release-contract.mjs";
+import { createArtifactRecord, createManifest, mergeArtifact } from "./release-manifest-lib.mjs";
 
 function usage() {
   throw new Error("Usage: npm run release:manifest -- [--base <manifest>] [--replace] <artifact> <https-download-url> <windows|macos> <x64|arm64>");
@@ -31,7 +32,7 @@ const artifact = await createArtifactRecord({ artifactPath: resolve(artifactArg)
 let manifest;
 if (basePath) {
   const base = JSON.parse(await readFile(resolve(basePath), "utf8"));
-  manifest = mergeArtifact(assertManifestCompatibility(base, { version: packageJson.version, revisions, allowDuplicateArtifacts: replaceExisting }), artifact, { replaceExisting });
+  manifest = mergeArtifact(assertValidRelease(base, { version: packageJson.version, revisions, allowDuplicateArtifacts: replaceExisting }), artifact, { replaceExisting });
 } else {
   manifest = createManifest({ version: packageJson.version, revisions, artifact });
 }

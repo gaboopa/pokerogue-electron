@@ -3,13 +3,7 @@ import fs from "node:fs";
 import { stat } from "node:fs/promises";
 import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { assertAllowedUrl, assertDistributableArtifactName, assertSourceRevisions, assertValidArtifact, assertValidRelease } from "../src/release-contract.mjs";
-
-export { assertAllowedUrl, assertDistributableArtifactName };
-
-export function assertManifestCompatibility(manifest, { version, revisions, allowDuplicateArtifacts = false }) {
-  return assertValidRelease(manifest, { version, revisions, allowDuplicateArtifacts });
-}
+import { assertDistributableArtifactName, assertSourceRevisions, assertValidArtifact } from "../src/release-contract.mjs";
 
 function artifactKey(artifact) {
   return `${artifact.platform}/${artifact.arch}`;

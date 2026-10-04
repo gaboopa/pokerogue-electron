@@ -8,7 +8,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createMenuTemplate } from "../src/menu.mjs";
 import { validateReleaseManifest } from "../src/updater.mjs";
-import { assertManifestCompatibility, createArtifactRecord, createManifest, mergeArtifact } from "../scripts/release-manifest-lib.mjs";
+import { createArtifactRecord, createManifest, mergeArtifact } from "../scripts/release-manifest-lib.mjs";
+import { assertValidRelease } from "../src/release-contract.mjs";
 import { assertSupportedHost, createLocalArtifactName, createLocalPackageArguments, parseAvailableBytes } from "../scripts/package-mac-local.mjs";
 
 function callbacks() {
@@ -95,18 +96,18 @@ test("release manifests preserve Windows while adding macOS", async () => {
     const mac = await createArtifactRecord({ artifactPath, platform: "macos", arch: "arm64", downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/macos.dmg" });
     const merged = mergeArtifact(createManifest({ version: "0.1.3", revisions, artifact: windows }), mac);
     assert.deepEqual(merged.artifacts.map(item => `${item.platform}/${item.arch}`), ["macos/arm64", "windows/x64"]);
-    assert.equal(assertManifestCompatibility(merged, { version: "0.1.3", revisions }), merged);
+    assert.equal(assertValidRelease(merged, { version: "0.1.3", revisions, allowDuplicateArtifacts: false }), merged);
     assert.throws(() => mergeArtifact(merged, mac), /already contains macos\/arm64/);
-    assert.throws(() => assertManifestCompatibility(merged, { version: "0.1.4", revisions }), /does not match package version/);
-    assert.throws(() => assertManifestCompatibility(merged, { version: "0.1.3", revisions: { ...revisions, assets: "wrong" } }), /source revision assets/);
+    assert.throws(() => assertValidRelease(merged, { version: "0.1.4", revisions, allowDuplicateArtifacts: false }), /does not match package version/);
+    assert.throws(() => assertValidRelease(merged, { version: "0.1.3", revisions: { ...revisions, assets: "wrong" }, allowDuplicateArtifacts: false }), /source revision assets/);
     const duplicate = { ...merged, artifacts: [...merged.artifacts, { ...merged.artifacts.find(item => item.platform === "windows") }] };
-    assert.throws(() => assertManifestCompatibility(duplicate, { version: "0.1.3", revisions }), /duplicate artifact coordinates/);
-    assert.doesNotThrow(() => assertManifestCompatibility(duplicate, { version: "0.1.3", revisions, allowDuplicateArtifacts: true }));
+    assert.throws(() => assertValidRelease(duplicate, { version: "0.1.3", revisions, allowDuplicateArtifacts: false }), /duplicate artifact coordinates/);
+    assert.doesNotThrow(() => assertValidRelease(duplicate, { version: "0.1.3", revisions, allowDuplicateArtifacts: true }));
     const replaced = mergeArtifact(duplicate, { ...mac, sha256: "b".repeat(64) }, { replaceExisting: true });
     assert.equal(replaced.artifacts.find(item => item.platform === "macos").sha256, "b".repeat(64));
     assert.equal(replaced.artifacts.filter(item => item.platform === "macos" && item.arch === "arm64").length, 1);
     const staleUrl = { ...merged, artifacts: merged.artifacts.map(item => item.platform === "windows" ? { ...item, downloadUrl: "http://github.com/evil.exe" } : item) };
-    assert.throws(() => assertManifestCompatibility(staleUrl, { version: "0.1.3", revisions }), /not allowed/);
+    assert.throws(() => assertValidRelease(staleUrl, { version: "0.1.3", revisions, allowDuplicateArtifacts: false }), /not allowed/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
