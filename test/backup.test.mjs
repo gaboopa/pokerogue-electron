@@ -443,6 +443,8 @@ test("overlapping Backup creations publish separate validated directories withou
   let signalBothCopies;
   const copyGate = new Promise(resolve => { releaseCopies = resolve; });
   const bothCopies = new Promise(resolve => { signalBothCopies = resolve; });
+  const pending = [];
+  let timer;
   let firstCopies = 0;
   const filesystem = {
     cp: async (source, destination, options) => {
@@ -457,7 +459,7 @@ test("overlapping Backup creations publish separate validated directories withou
   try {
     const onePromise = createBackup(userData, backupRoot, filesystem);
     const twoPromise = createBackup(userData, backupRoot, filesystem);
-    let timer;
+    pending.push(onePromise, twoPromise);
     await Promise.race([bothCopies, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("overlapping copies did not reach the gate")), 5000); })]);
     clearTimeout(timer);
     releaseCopies();
@@ -468,7 +470,9 @@ test("overlapping Backup creations publish separate validated directories withou
     assert.equal(await readFile(join(backupRoot, "backup-prior", "sentinel"), "utf8"), "preserve prior bytes");
     await assertPublicationSourceIntact(userData);
   } finally {
+    clearTimeout(timer);
     releaseCopies();
+    await Promise.allSettled(pending);
     await rm(root, { recursive: true, force: true });
   }
 });
