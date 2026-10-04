@@ -8,7 +8,7 @@ Current implementation evidence is recorded in [progress.md](progress.md). The a
 
 ## Outcome and source
 
-Repair all ten confirmed correctness findings before the next release. They map to nine implementation tickets because findings 1 and 9 require the same download ownership change. Four further tickets cover dependency retesting, Backup consistency research, and native Windows/macOS release validation. Nine optional tickets cover the six simplification recommendations and streaming artifact hashing. S2 and S6 each split into independent module tasks.
+Repair all ten confirmed correctness findings before the next release. They map to nine implementation tickets because findings 1 and 9 require the same download ownership change. Four further tickets cover dependency retesting, Backup consistency research, and native Windows/macOS release validation. Nine optional tickets cover the six simplification recommendations and streaming artifact hashing. S2 and S6 each split into independent module tasks. R11 established restoration evidence but left live-profile filesystem-copy consistency inconclusive; the cold-capture correction is split into R14-R20 and remains a release blocker.
 
 The report is preserved verbatim in [review-report.md](review-report.md). It is historical evidence, not a fresh audit. Its baseline is 55 passing tests despite the reported failures. This planning session inspected code and test entry points but did not rerun tests, build the upstream game, or validate native packages.
 
@@ -69,10 +69,27 @@ A reusable assignment prompt:
 - [R10 #17, Retest the locked dependency graph before release](https://github.com/gaboopa/pokerogue-electron/issues/17). ready-for-agent; blockers #8, #9, #10, #11, #12, #13, #14, #15, #16.
 - [R11 #18, Prove the Backup capture strategy restores Chromium save data](https://github.com/gaboopa/pokerogue-electron/issues/18). ready-for-agent; blockers #8, #11.
 
+### Phase 4b, cold profile capture correction
+
+- [R14 #31, Prove Electron cold-capture exit and profile ownership](https://github.com/gaboopa/pokerogue-electron/issues/31). ready-for-agent; blockers #18.
+- [R15 #32, Publish validated backups atomically](https://github.com/gaboopa/pokerogue-electron/issues/32). ready-for-agent; blockers #18.
+- [R16 #33, Add a strict one-shot backup intent journal](https://github.com/gaboopa/pokerogue-electron/issues/33). ready-for-agent; blockers #31.
+- [R17 #34, Run cold backup capture in an isolated Electron worker mode](https://github.com/gaboopa/pokerogue-electron/issues/34). ready-for-agent; blockers #31, #32, #33.
+- [R18 #35, Resume manual and Update backups after cold capture](https://github.com/gaboopa/pokerogue-electron/issues/35). ready-for-agent; blockers #34, #13.
+- [R19 #36, Resume restore and cheat operations after cold safety backup](https://github.com/gaboopa/pokerogue-electron/issues/36). ready-for-agent; blockers #35.
+- [R20 #37, Clear cold Backup through the packaged Electron application](https://github.com/gaboopa/pokerogue-electron/issues/37). ready-for-agent; blockers #36, #17; blocks #19 and #20.
+
+### Checkpoint: Cold capture proof and integration
+
+- [ ] R14 proves graceful exit/relaunch, source ownership lock, and isolated worker profile; stop the design if any proof fails.
+- [ ] The packaged worker never opens a session against the source profile before copying and all three storage directories remain in scope; document Session Storage browsing-context limits precisely.
+- [ ] All four Backup call flows resume once after success, fail visibly on cancellation/veto/error/interruption, and do not trust persisted paths or replay operations.
+- [ ] R20 passes against the actual packaged app; until then #19/#20 stay blocked by #37.
+
 ### Phase 5, native release validation
 
-- [R12 #19, Validate the corrected Windows distributable before release](https://github.com/gaboopa/pokerogue-electron/issues/19). ready-for-human; blockers #17, #18, #30.
-- [R13 #20, Validate native macOS behavior before release](https://github.com/gaboopa/pokerogue-electron/issues/20). ready-for-human; blockers #17, #18.
+- [R12 #19, Validate the corrected Windows distributable before release](https://github.com/gaboopa/pokerogue-electron/issues/19). ready-for-human; blockers #17, #18, #30, #37.
+- [R13 #20, Validate native macOS behavior before release](https://github.com/gaboopa/pokerogue-electron/issues/20). ready-for-human; blockers #17, #18, #37.
 
 - [V01 #30, Prepare isolated Windows release validation without publishing](https://github.com/gaboopa/pokerogue-electron/issues/30). completed; preparation blockers none. This support task was split from R12 on 2026-10-04; executing the workflow waits for R10/R11.
 
@@ -90,7 +107,7 @@ A reusable assignment prompt:
 
 ## Dependencies and ownership
 
-The primary chains are R01 -> R04 -> R05 -> R06 and R07 -> R08. R10 waits for R01 through R09. R11 waits for R01 and R04. R12 and R13 wait for R10 and R11, which carries all correctness fixes into native validation. Optional tickets wait for R10 and may then be selected independently.
+The primary chains are R01 -> R04 -> R05 -> R06 and R07 -> R08. R10 waits for R01 through R09. R11 waits for R01 and R04. The cold-capture chain is R14/R15 after R11, R16 after R14, R17 after R14-R16, R18 after R17 and R06, R19 after R18, and R20 after R19 and R10. R20 blocks both R12 and R13 in addition to their existing R10/R11 blockers. Optional tickets wait for R10 and may then be selected independently.
 
 - R01, R02, and R03 can run concurrently in isolated checkouts. They are the three P1 slices.
 - R04 follows R01. R05 follows R04. R06 follows R05. This also serializes src/main.mjs ownership.
@@ -116,9 +133,9 @@ Recommended dispatch batches: R01/R02/R03, then R04 plus R07/R09, then R05/R08/R
 ### After R04 through R06
 
 - [x] Valid historical backups still restore under the documented compatibility policy; malformed inventories and corruption fail before mutation.
-- [ ] Two failed-startup attempts recover without an endless pending marker or loading partially restored Save data.
-- [ ] Behavioral lifecycle tests reopen the game with auxiliary windows alive and guard destroyed-window callbacks.
-- [ ] Integrated npm test passes. Confirm existing staged resources remain usable with npm run run:packaged and an isolated profile when they are present.
+- [x] Two failed-startup attempts recover without an endless pending marker or loading partially restored Save data.
+- [x] Behavioral lifecycle tests reopen the game with auxiliary windows alive and guard destroyed-window callbacks.
+- [x] Integrated npm test passes. Confirm existing staged resources remain usable with npm run run:packaged and an isolated profile when they are present.
 
 ### After R07 through R09
 
@@ -161,7 +178,7 @@ If selected, review S01/S02a/S02b after their changes integrate, then S03/S04/S0
 | 9, interrupted partial-file cleanup | R02 |
 | 10, null cheat document | R09 |
 | Audit/dependency retesting | R10 |
-| Live-database capture uncertainty | R11 |
+| Live-database capture uncertainty | R11; corrective cold-capture path R14-R20 |
 | Missing native Windows/macOS validation | R12, R13 |
 | S1, inactive preloads | S01 |
 | S2, forwarding release helpers | S02a, S02b |
@@ -178,15 +195,15 @@ If selected, review S01/S02a/S02b after their changes integrate, then S03/S04/S0
 | Rollback itself fails after disk or permission errors | R01 retains originals; R05 opens recovery instead of loading partially restored data. |
 | Format changes reject historical backups | R04 uses explicit versioning and tested v1 compatibility. |
 | A later download overwrites a previously returned path | R02 must test both corrupted overlap and valid conflicting same-basename artifacts; serialization alone is insufficient without a collision policy. |
-| A checksum-valid live copy is not a usable database snapshot | R11 uses actual Electron storage and relevant upstream-game invariants; failures add a corrective release blocker. |
+| A checksum-valid live copy is not a usable database snapshot | R11 restoration evidence remains inconclusive for live profile copying. R14 proves cold process ownership; R17 fails closed if lock/profile isolation fails; R20 blocks native release validation until the packaged flow passes. |
 | Unit tests inspect source instead of shipped behavior | Use actual functions/callbacks and native preload input. Preserve useful security assertions while replacing weak behavioral coverage. |
 | Official advisories change after the report | R10 verifies current primary sources and records resolved versions and reachability. |
 | Native macOS validation cannot run on this Windows workspace | R13 stays ready-for-human until a native host records outcomes; mocks do not close it. |
 | Optional export deletion affects outside tooling | Resolve supported callers first; use needs-info when evidence is missing. |
 | Shared-file agents overwrite each other | Isolated checkouts, one ticket per session, and serial ownership of named shared-file groups. |
 
-Open decisions are bounded by their tickets: R04 chooses the canonical new checksum format and genuine-empty-snapshot policy; R11 establishes capture consistency and may require a follow-up; R10 chooses advisory-backed versions; R13 needs a native macOS owner. None of these are answered by the review's historical passing suite.
+Open decisions are bounded by their tickets: R04 chooses the canonical new checksum format and genuine-empty-snapshot policy; R14 must prove cold process/lock ownership or stop the worker design; R16-R19 define strict intent and continuation behavior; R20 clears the packaged flow; R10 chooses advisory-backed versions; R13 needs a native macOS owner. None of these are answered by the review's historical passing suite.
 
 ## Plan validation
 
-Every ticket has a description, at most three acceptance criteria, focused verification, dependencies, likely files, and S/M scope. Checkpoints follow each two-to-three-task phase. All 22 issue bodies, labels, and 29 native dependency edges were checked after publication. GitHub holds task status and dependency state. No pre-existing incomplete plan was overwritten. Production source, dependencies, upstream checkout, and real Save data were not modified by planning.
+Every ticket has a description, at most three acceptance criteria, focused verification, dependencies, likely files, and S/M scope. Checkpoints follow each two-to-three-task phase. The original 22 issue bodies, labels, and 29 native dependency edges were checked after their publication. R14-R20 were subsequently published as #31-#37, each labelled ready-for-agent; their native dependency edges were verified, including R20 blocking both #19 and #20. GitHub holds task status and dependency state. No pre-existing incomplete plan was overwritten. Production source, dependencies, upstream checkout, and real Save data were not modified by planning.
