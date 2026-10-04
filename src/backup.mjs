@@ -1,10 +1,10 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
 export const STORAGE_DIRECTORIES = ["Local Storage", "IndexedDB", "Session Storage"];
 
-const filesystem = { cp, mkdir, rename, rm };
+const filesystem = { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile };
 const CURRENT_SCHEMA_VERSION = 2;
 
 export class BackupRestoreError extends Error {
@@ -34,15 +34,15 @@ function updateFrame(hash, value) {
   hash.update(bytes);
 }
 
-async function hashTree(root) {
+async function hashTree(root, fs = filesystem) {
   const hash = createHash("sha256");
   async function visit(dir, prefix = "") {
-    for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const entry of (await fs.readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
       const rel = join(prefix, entry.name);
       if (entry.isDirectory()) await visit(join(dir, entry.name), rel);
       else {
         hash.update(rel.replaceAll("\\", "/"));
-        hash.update(await readFile(join(dir, entry.name)));
+        hash.update(await fs.readFile(join(dir, entry.name)));
       }
     }
   }
@@ -50,10 +50,10 @@ async function hashTree(root) {
   return hash.digest("hex");
 }
 
-async function hashTreeV2(root) {
+async function hashTreeV2(root, fs = filesystem) {
   const hash = createHash("sha256");
   async function visit(dir, prefix = "") {
-    for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => compareNames(a.name, b.name))) {
+    for (const entry of (await fs.readdir(dir, { withFileTypes: true })).sort((a, b) => compareNames(a.name, b.name))) {
       const relativePath = (prefix ? `${prefix}/${entry.name}` : entry.name).replaceAll("\\", "/");
       if (entry.isDirectory()) {
         updateFrame(hash, "directory");
@@ -63,7 +63,7 @@ async function hashTreeV2(root) {
       } else if (entry.isFile()) {
         updateFrame(hash, "file");
         updateFrame(hash, relativePath);
-        updateFrame(hash, await readFile(join(dir, entry.name)));
+        updateFrame(hash, await fs.readFile(join(dir, entry.name)));
       } else {
         throw new Error("Backup data contains a symbolic link or unsupported entry");
       }
@@ -73,26 +73,26 @@ async function hashTreeV2(root) {
   return hash.digest("hex");
 }
 
-async function assertSafeTree(root) {
-  for (const entry of await readdir(root, { withFileTypes: true })) {
+async function assertSafeTree(root, fs = filesystem) {
+  for (const entry of await fs.readdir(root, { withFileTypes: true })) {
     if (entry.isSymbolicLink()) throw new Error("Backup data contains a symbolic link or unsupported entry");
-    if (entry.isDirectory()) await assertSafeTree(join(root, entry.name));
+    if (entry.isDirectory()) await assertSafeTree(join(root, entry.name), fs);
     else if (!entry.isFile()) throw new Error("Backup data contains a symbolic link or unsupported entry");
   }
 }
 
-async function assertInventory(backupPath, included) {
+async function assertInventory(backupPath, included, fs = filesystem) {
   const dataRoot = join(backupPath, "data");
   let rootInfo;
   try {
-    rootInfo = await lstat(dataRoot);
+    rootInfo = await fs.lstat(dataRoot);
   } catch (error) {
     if (error.code === "ENOENT") throw new Error("Backup data directory is missing");
     throw error;
   }
   if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) throw new Error("Backup data root must be a directory");
 
-  const entries = await readdir(dataRoot, { withFileTypes: true });
+  const entries = await fs.readdir(dataRoot, { withFileTypes: true });
   if (entries.some(entry => !entry.isDirectory() || !STORAGE_DIRECTORIES.includes(entry.name))) {
     throw new Error("Backup data contains an unexpected storage directory or entry");
   }
@@ -101,16 +101,16 @@ async function assertInventory(backupPath, included) {
   if (actual.length !== expected.length || actual.some((name, index) => name !== expected[index])) {
     throw new Error("Backup inventory does not match its data directories");
   }
-  await assertSafeTree(dataRoot);
+  await assertSafeTree(dataRoot, fs);
 }
 
-async function hashBackupV2(dataRoot, metadata) {
+async function hashBackupV2(dataRoot, metadata, fs = filesystem) {
   const hash = createHash("sha256");
   updateFrame(hash, "pokerogue-offline-backup");
   updateFrame(hash, String(metadata.schemaVersion));
   updateFrame(hash, metadata.createdAt);
   updateFrame(hash, JSON.stringify(metadata.included));
-  updateFrame(hash, Buffer.from(await hashTreeV2(dataRoot), "hex"));
+  updateFrame(hash, Buffer.from(await hashTreeV2(dataRoot, fs), "hex"));
   return hash.digest("hex");
 }
 
@@ -133,41 +133,89 @@ function validateManifestShape(manifest) {
   if (typeof manifest.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(manifest.sha256)) throw new Error("Backup manifest has an invalid checksum");
 }
 
-export async function createBackup(userData, backupRoot) {
-  const stamp = new Date().toISOString().replaceAll(":", "-");
-  const destination = join(backupRoot, `backup-${stamp}`);
-  await mkdir(join(destination, "data"), { recursive: true });
-  const included = [];
-  for (const name of STORAGE_DIRECTORIES) {
-    const source = join(userData, name);
-    let info;
-    try {
-      info = await lstat(source);
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-      continue;
-    }
-    if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`Save storage path is not a directory: ${name}`);
-    await cp(source, join(destination, "data", name), { recursive: true, errorOnExist: true });
-    included.push(name);
+function assertOwnedStage(backupRoot, stagePath) {
+  const resolvedRoot = resolve(backupRoot);
+  const resolvedStage = resolve(stagePath);
+  const relativeStage = relative(resolvedRoot, resolvedStage);
+  if (!relativeStage || relativeStage === ".." || relativeStage.startsWith(`..${sep}`) || dirname(resolvedStage) !== resolvedRoot) {
+    throw new Error(`Refusing to remove Backup stage outside its root: ${stagePath}`);
   }
-  const manifest = {
-    schemaVersion: CURRENT_SCHEMA_VERSION,
-    createdAt: new Date().toISOString(),
-    included: sortedNames(included)
-  };
-  manifest.sha256 = await hashBackupV2(join(destination, "data"), manifest);
-  await writeFile(join(destination, "manifest.json"), JSON.stringify(manifest, null, 2));
-  return destination;
+  return resolvedStage;
 }
 
-export async function validateBackup(backupPath) {
-  const manifest = JSON.parse(await readFile(join(backupPath, "manifest.json"), "utf8"));
+export async function createBackup(userData, backupRoot, fs = filesystem) {
+  const operations = { ...filesystem, ...fs };
+  const stamp = new Date().toISOString().replaceAll(":", "-");
+  await operations.mkdir(backupRoot, { recursive: true });
+  let stage;
+  try {
+    for (let attempt = 0; attempt < 10 && !stage; attempt++) {
+      const candidate = join(backupRoot, `.backup-${stamp}-${randomUUID()}.tmp`);
+      try {
+        await operations.mkdir(candidate);
+        stage = candidate;
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
+      }
+    }
+    if (!stage) throw new Error("Could not allocate a unique temporary Backup directory");
+    await operations.mkdir(join(stage, "data"));
+    const included = [];
+    for (const name of STORAGE_DIRECTORIES) {
+      const source = join(userData, name);
+      let info;
+      try {
+        info = await operations.lstat(source);
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        continue;
+      }
+      if (info.isSymbolicLink() || !info.isDirectory()) throw new Error(`Save storage path is not a directory: ${name}`);
+      await operations.cp(source, join(stage, "data", name), { recursive: true, errorOnExist: true });
+      included.push(name);
+    }
+    const manifest = {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      createdAt: new Date().toISOString(),
+      included: sortedNames(included)
+    };
+    manifest.sha256 = await hashBackupV2(join(stage, "data"), manifest, operations);
+    await operations.writeFile(join(stage, "manifest.json"), JSON.stringify(manifest, null, 2));
+    await validateBackup(stage, operations);
+
+    let destination;
+    for (let attempt = 0; attempt < 10 && !destination; attempt++) {
+      const candidate = join(backupRoot, `backup-${stamp}-${randomUUID()}`);
+      try {
+        await operations.lstat(candidate);
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+        destination = candidate;
+      }
+    }
+    if (!destination) throw new Error("Could not allocate a unique published Backup directory");
+    await operations.rename(stage, destination);
+    stage = undefined;
+    return destination;
+  } catch (error) {
+    if (!stage) throw error;
+    try {
+      await operations.rm(assertOwnedStage(backupRoot, stage), { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new Error(`Backup creation failed: ${error.message}. Temporary Backup stage retained at ${stage}; cleanup failed: ${cleanupError.message}`, { cause: error });
+    }
+    throw error;
+  }
+}
+
+export async function validateBackup(backupPath, fs = filesystem) {
+  const operations = { ...filesystem, ...fs };
+  const manifest = JSON.parse(await operations.readFile(join(backupPath, "manifest.json"), "utf8"));
   validateManifestShape(manifest);
-  await assertInventory(backupPath, manifest.included);
+  await assertInventory(backupPath, manifest.included, operations);
   const actual = manifest.schemaVersion === 1
-    ? await hashTree(join(backupPath, "data"))
-    : await hashBackupV2(join(backupPath, "data"), manifest);
+    ? await hashTree(join(backupPath, "data"), operations)
+    : await hashBackupV2(join(backupPath, "data"), manifest, operations);
   if (actual !== manifest.sha256) throw new Error("Backup checksum verification failed");
   return manifest;
 }

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { cp, mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { BackupRestoreError, createBackup, restoreBackup, validateBackup } from "../src/backup.mjs";
 
@@ -381,4 +381,145 @@ test("backup inventory rejects symbolic links", async t => {
     throw error;
   }
   await assert.rejects(validateBackup(backup), /symbolic link|unsupported/i);
+});
+
+async function makePublicationFixture() {
+  const root = await mkdtemp(join(tmpdir(), "pokerogue-backup-publish-"));
+  const userData = join(root, "user");
+  const backupRoot = join(root, "backups");
+  await mkdir(backupRoot, { recursive: true });
+  for (const name of ["Local Storage", "IndexedDB", "Session Storage"]) {
+    await mkdir(join(userData, name), { recursive: true });
+    await writeFile(join(userData, name, "save"), `source ${name}`);
+  }
+  const unrelated = join(backupRoot, "backup-prior");
+  await mkdir(unrelated);
+  await writeFile(join(unrelated, "sentinel"), "preserve prior bytes");
+  return { root, userData, backupRoot, unrelated };
+}
+
+async function publicationEntries(backupRoot) {
+  return readdir(backupRoot);
+}
+
+async function assertOnlyPriorBackupRemains(backupRoot) {
+  assert.deepEqual(await publicationEntries(backupRoot), ["backup-prior"]);
+  assert.equal(await readFile(join(backupRoot, "backup-prior", "sentinel"), "utf8"), "preserve prior bytes");
+}
+
+async function assertPublicationSourceIntact(userData) {
+  for (const name of ["Local Storage", "IndexedDB", "Session Storage"]) {
+    assert.equal(await readFile(join(userData, name, "save"), "utf8"), `source ${name}`);
+  }
+}
+
+test("Backup publication validates a unique staging directory before atomic rename", async () => {
+  const { root, userData, backupRoot } = await makePublicationFixture();
+  try {
+    const first = await createBackup(userData, backupRoot);
+    const second = await createBackup(userData, backupRoot);
+    assert.notEqual(first, second);
+    for (const backup of [first, second]) {
+      const manifest = await validateBackup(backup);
+      assert.equal(manifest.schemaVersion, 2);
+      assert.deepEqual(manifest.included, ["IndexedDB", "Local Storage", "Session Storage"]);
+      for (const name of manifest.included) {
+        assert.equal(await readFile(join(backup, "data", name, "save"), "utf8"), `source ${name}`);
+      }
+    }
+    const entries = await publicationEntries(backupRoot);
+    assert.equal(entries.filter(name => name.startsWith(".backup-")).length, 0);
+    assert.deepEqual(entries.filter(name => name.startsWith("backup-")).sort(), ["backup-prior", first.split(/[\\/]/).at(-1), second.split(/[\\/]/).at(-1)].sort());
+    assert.equal(await readFile(join(backupRoot, "backup-prior", "sentinel"), "utf8"), "preserve prior bytes");
+    await assertPublicationSourceIntact(userData);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("overlapping Backup creations publish separate validated directories without replacing prior data", async () => {
+  const { root, userData, backupRoot } = await makePublicationFixture();
+  let releaseCopies;
+  let signalBothCopies;
+  const copyGate = new Promise(resolve => { releaseCopies = resolve; });
+  const bothCopies = new Promise(resolve => { signalBothCopies = resolve; });
+  let firstCopies = 0;
+  const filesystem = {
+    cp: async (source, destination, options) => {
+      if (firstCopies < 2) {
+        firstCopies++;
+        if (firstCopies === 2) signalBothCopies();
+        await copyGate;
+      }
+      return cp(source, destination, options);
+    }
+  };
+  try {
+    const onePromise = createBackup(userData, backupRoot, filesystem);
+    const twoPromise = createBackup(userData, backupRoot, filesystem);
+    let timer;
+    await Promise.race([bothCopies, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("overlapping copies did not reach the gate")), 5000); })]);
+    clearTimeout(timer);
+    releaseCopies();
+    const [one, two] = await Promise.all([onePromise, twoPromise]);
+    assert.notEqual(one, two);
+    await Promise.all([validateBackup(one), validateBackup(two)]);
+    assert.equal((await publicationEntries(backupRoot)).filter(name => name.startsWith(".backup-")).length, 0);
+    assert.equal(await readFile(join(backupRoot, "backup-prior", "sentinel"), "utf8"), "preserve prior bytes");
+    await assertPublicationSourceIntact(userData);
+  } finally {
+    releaseCopies();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("copy, hash, manifest, validation, and publish failures never expose a final Backup", async t => {
+  const failures = [
+    ["copy", async () => ({ cp: async (_source, destination) => { await mkdir(destination, { recursive: true }); await writeFile(join(destination, "partial"), "partial bytes"); throw new Error("injected copy failure"); } })],
+    ["hash", async () => ({ readdir: async (path, options) => { if (String(path).endsWith(join("data"))) throw new Error("injected hash failure"); return readdir(path, options); } })],
+    ["manifest", async () => ({ writeFile: async (path, ...args) => { if (String(path).endsWith("manifest.json")) throw new Error("injected manifest failure"); return writeFile(path, ...args); } })],
+    ["validation", async () => { let manifestWritten = false; return {
+      writeFile: async (path, ...args) => { const result = await writeFile(path, ...args); if (String(path).endsWith("manifest.json")) manifestWritten = true; return result; },
+      readFile: async (path, ...args) => { if (manifestWritten && String(path).endsWith("manifest.json")) throw new Error("injected validation failure"); return readFile(path, ...args); }
+    }; }],
+    ["publish", async () => ({ rename: async () => { throw new Error("injected publish failure"); } })]
+  ];
+  for (const [boundary, makeFaults] of failures) {
+    await t.test(boundary, async () => {
+      const { root, userData, backupRoot } = await makePublicationFixture();
+      try {
+        const faults = await makeFaults({ cp });
+        await assert.rejects(createBackup(userData, backupRoot, faults), new RegExp(`injected ${boundary} failure`));
+        await assertOnlyPriorBackupRemains(backupRoot);
+        await assertPublicationSourceIntact(userData);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test("a failed stage cleanup reports the original error and retained owned path", async () => {
+  const { root, userData, backupRoot } = await makePublicationFixture();
+  let retainedStage;
+  const filesystem = {
+    cp: async (source, destination, options) => { await cp(source, destination, options); throw new Error("original copy failure"); },
+    rm: async (path, options) => { if (String(path).includes(".backup-")) { retainedStage = path; throw new Error("stage cleanup failure"); } return rm(path, options); }
+  };
+  try {
+    await assert.rejects(createBackup(userData, backupRoot, filesystem), error => {
+      assert.match(error.message, /original copy failure/);
+      assert.match(error.message, /stage cleanup failure/);
+      assert.ok(error.message.includes(retainedStage));
+      return true;
+    });
+    assert.ok(retainedStage);
+    assert.equal(dirname(retainedStage), backupRoot);
+    assert.deepEqual((await readdir(retainedStage)).includes("manifest.json"), false);
+    assert.deepEqual((await publicationEntries(backupRoot)).sort(), ["backup-prior", retainedStage.split(/[\\/]/).at(-1)].sort());
+    assert.equal(await readFile(join(backupRoot, "backup-prior", "sentinel"), "utf8"), "preserve prior bytes");
+    await assertPublicationSourceIntact(userData);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
