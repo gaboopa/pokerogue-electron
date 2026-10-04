@@ -2,7 +2,7 @@
 
 Prepared 2026-10-03 from the supplied PokeRogue Offline repository review.
 Verified repository baseline: main at 6626c70. The working tree was clean before planning.
-Status: user approved agent dispatch and all updates on 2026-10-03. The P1 batch is integrated; current assignments and verification appear in progress.md.
+Status: user approved agent dispatch and all updates on 2026-10-03. All nine original correctness tasks, dependency retesting, and atomic Backup publication are integrated. Cold capture, optional cleanup, and native release gates remain open; current assignments and verification appear in progress.md.
 
 Current implementation evidence is recorded in [progress.md](progress.md). The all-updates goal approves the optional queue as well as correctness work.
 
