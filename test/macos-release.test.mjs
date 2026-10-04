@@ -108,6 +108,87 @@ test("release manifests preserve Windows while adding macOS", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("manifest artifact merges preserve policy, ordering, cloning, and input identity across 24 cases", () => {
+  const revisions = { game: "game", assets: "assets", locales: "locales" };
+  const artifact = (platform, fixtureId) => {
+    const arch = platform === "windows" ? "x64" : "arm64";
+    const extension = platform === "windows" ? "exe" : "dmg";
+    return {
+      platform,
+      arch,
+      fileName: `PokeRogue-Offline-0.1.3-${platform}-${arch}.${extension}`,
+      size: 10,
+      sha256: "a".repeat(64),
+      downloadUrl: `https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/${fixtureId}.${extension}`,
+      fixtureId,
+    };
+  };
+  const windows = artifact("windows", "windows-a");
+  const windowsDuplicate = artifact("windows", "windows-b");
+  const mac = artifact("macos", "macos-a");
+  const macDuplicate = artifact("macos", "macos-b");
+  const lists = [
+    { name: "empty", artifacts: [] },
+    { name: "Windows", artifacts: [windows] },
+    { name: "macOS", artifacts: [mac] },
+    { name: "Windows then macOS", artifacts: [windows, mac] },
+    { name: "macOS then Windows", artifacts: [mac, windows] },
+    { name: "interleaved duplicate coordinates", artifacts: [mac, windows, macDuplicate, windowsDuplicate] },
+  ];
+  const coordinate = item => `${item.platform}/${item.arch}`;
+  let cases = 0;
+
+  for (const list of lists) {
+    for (const platform of ["windows", "macos"]) {
+      for (const replaceExisting of [false, true]) {
+        cases++;
+        const added = artifact(platform, `new-${platform}`);
+        const artifacts = [...list.artifacts];
+        const manifest = { schemaVersion: 1, version: "0.1.3", sourceRevisions: revisions, artifacts };
+        const originalArtifacts = manifest.artifacts;
+        const originalManifest = structuredClone(manifest);
+        const hasMatch = artifacts.some(item => coordinate(item) === coordinate(added));
+
+        if (hasMatch && !replaceExisting) {
+          assert.throws(
+            () => mergeArtifact(manifest, added, { replaceExisting }),
+            error => error.message === `Manifest already contains ${coordinate(added)}; pass --replace to replace it`,
+            `${list.name}, ${platform}, replacement disabled`,
+          );
+        } else {
+          const retained = artifacts.filter(item => !replaceExisting || coordinate(item) !== coordinate(added));
+          const expected = retained.map(item => ({ ...item }));
+          expected.push(added);
+          expected.sort((left, right) => coordinate(left).localeCompare(coordinate(right)));
+
+          const merged = mergeArtifact(manifest, added, { replaceExisting });
+          assert.notStrictEqual(merged, manifest);
+          assert.notStrictEqual(merged.artifacts, originalArtifacts);
+          assert.deepEqual(merged.artifacts, expected, `${list.name}, ${platform}, replace=${replaceExisting}`);
+          assert.strictEqual(merged.artifacts.find(item => item.fixtureId === added.fixtureId), added);
+          for (const retainedArtifact of retained) {
+            const copy = merged.artifacts.find(item => item.fixtureId === retainedArtifact.fixtureId);
+            assert.deepEqual(copy, retainedArtifact);
+            assert.notStrictEqual(copy, retainedArtifact);
+          }
+        }
+
+        assert.strictEqual(manifest.artifacts, originalArtifacts);
+        assert.deepEqual(manifest, originalManifest);
+      }
+    }
+  }
+
+  assert.equal(cases, 24);
+  const invalid = { ...artifact("macos", "invalid"), platform: "linux" };
+  const manifest = { schemaVersion: 1, version: "0.1.3", sourceRevisions: revisions, artifacts: [windows] };
+  const originalArtifacts = manifest.artifacts;
+  assert.throws(() => mergeArtifact(manifest, invalid, { replaceExisting: true }), /Unsupported release artifact coordinates: linux\/arm64/);
+  assert.strictEqual(manifest.artifacts, originalArtifacts);
+  assert.deepEqual(manifest.artifacts, [windows]);
+});
+
 test("a malformed non-selected artifact invalidates the whole release", () => {
   const manifest = {
     schemaVersion: 1,

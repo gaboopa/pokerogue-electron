@@ -29,15 +29,10 @@ export async function createArtifactRecord({ artifactPath, downloadUrl, platform
 
 export function mergeArtifact(manifest, artifact, { replaceExisting = false } = {}) {
   assertValidArtifact(artifact);
-  const artifacts = manifest.artifacts.map(item => ({ ...item }));
-  const matches = artifacts.filter(item => item.platform === artifact.platform && item.arch === artifact.arch);
-  if (matches.length > 0 && !replaceExisting) throw new Error(`Manifest already contains ${artifactKey(artifact)}; pass --replace to replace it`);
-  if (matches.length > 0) {
-    const remaining = artifacts.filter(item => item.platform !== artifact.platform || item.arch !== artifact.arch);
-    remaining.push(artifact);
-    artifacts.length = 0;
-    artifacts.push(...remaining);
-  } else artifacts.push(artifact);
+  const matches = item => item.platform === artifact.platform && item.arch === artifact.arch;
+  if (manifest.artifacts.some(matches) && !replaceExisting) throw new Error(`Manifest already contains ${artifactKey(artifact)}; pass --replace to replace it`);
+  const artifacts = manifest.artifacts.filter(item => !matches(item)).map(item => ({ ...item }));
+  artifacts.push(artifact);
   artifacts.sort((left, right) => artifactKey(left).localeCompare(artifactKey(right)));
   return { ...manifest, artifacts };
 }
