@@ -41,7 +41,7 @@ export const MAXIMUM_FUN_CHEATS = Object.freeze({
   guaranteedCriticals: true,
 });
 
-const booleanKeys = ["enabled", "disableLevelCap", "freeShopPurchases", "freeRerolls", "forceRetries", "guaranteedEscape", "perfectIvs", "playerShiny", "enemyShiny", "instantEggHatch", "freeGacha", "guaranteedCriticals"];
+const booleanKeys = Object.keys(NEUTRAL_CHEATS).filter(key => typeof NEUTRAL_CHEATS[key] === "boolean");
 const integer = (value, fallback, min, max) => Number.isInteger(value) && value >= min && value <= max ? value : fallback;
 
 export function validateCheatConfig(value) {

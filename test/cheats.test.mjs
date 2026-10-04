@@ -19,6 +19,20 @@ test("cheat validation discards unknown keys and bounds invalid values", () => {
   assert.equal(Object.hasOwn(result, "unknown"), false);
 });
 
+test("boolean defaults determine accepted keys and invalid-type fallback", () => {
+  const defaults = Object.fromEntries(Object.entries(NEUTRAL_CHEATS).filter(([, value]) => typeof value === "boolean"));
+  const keys = Object.keys(defaults);
+  assert.equal(keys.length, 12);
+
+  const requested = Object.fromEntries(keys.map(key => [key, !defaults[key]]));
+  const accepted = validateCheatConfig(requested);
+  assert.deepEqual(Object.fromEntries(keys.map(key => [key, accepted[key]])), requested);
+
+  const invalid = Object.fromEntries(keys.map(key => [key, "invalid"]));
+  const fallback = validateCheatConfig(invalid);
+  assert.deepEqual(Object.fromEntries(keys.map(key => [key, fallback[key]])), defaults);
+});
+
 test("maximum fun and neutral presets remain stable", () => {
   assert.equal(MAXIMUM_FUN_CHEATS.minimumMoney, 1_000_000); assert.equal(MAXIMUM_FUN_CHEATS.xpMultiplier, 10);
   assert.deepEqual(MAXIMUM_FUN_CHEATS.pokeballs, { poke: 99, great: 99, ultra: 99, rogue: 99, master: 10 });
