@@ -74,17 +74,19 @@ A reusable assignment prompt:
 - [R12 #19, Validate the corrected Windows distributable before release](https://github.com/gaboopa/pokerogue-electron/issues/19). ready-for-human; blockers #17, #18.
 - [R13 #20, Validate native macOS behavior before release](https://github.com/gaboopa/pokerogue-electron/issues/20). ready-for-human; blockers #17, #18.
 
+- [V01 #30, Prepare isolated Windows release validation without publishing](https://github.com/gaboopa/pokerogue-electron/issues/30). ready-for-agent; preparation blockers none. This support task was split from R12 on 2026-10-04; executing the workflow waits for R10/R11.
+
 ### Optional queue
 
-- [S01 #21, Remove inactive preloads after verifying the shipped preload](https://github.com/gaboopa/pokerogue-electron/issues/21). needs-triage; blockers #17.
-- [S02a #22, Import manifest validation directly from the Release contract](https://github.com/gaboopa/pokerogue-electron/issues/22). needs-triage; blockers #17.
-- [S02b #23, Remove forwarding exports from Windows packaging](https://github.com/gaboopa/pokerogue-electron/issues/23). needs-triage; blockers #17.
-- [S03 #24, Return a filtered artifact list from manifest merging](https://github.com/gaboopa/pokerogue-electron/issues/24). needs-triage; blockers #17.
-- [S04 #25, State shared development packaging settings once](https://github.com/gaboopa/pokerogue-electron/issues/25). needs-triage; blockers #17.
-- [S05 #26, Derive cheat boolean keys from typed defaults](https://github.com/gaboopa/pokerogue-electron/issues/26). needs-triage; blockers #17.
-- [S06a #27, Expand cheat editor handlers into ordered statements](https://github.com/gaboopa/pokerogue-electron/issues/27). needs-triage; blockers #17.
-- [S06b #28, Expand keymap creation error handling](https://github.com/gaboopa/pokerogue-electron/issues/28). needs-triage; blockers #17.
-- [P01 #29, Stream release artifact hashing instead of buffering it](https://github.com/gaboopa/pokerogue-electron/issues/29). needs-triage; blockers #17.
+- [S01 #21, Remove inactive preloads after verifying the shipped preload](https://github.com/gaboopa/pokerogue-electron/issues/21). ready-for-agent; blockers #17.
+- [S02a #22, Import manifest validation directly from the Release contract](https://github.com/gaboopa/pokerogue-electron/issues/22). ready-for-agent; blockers #17.
+- [S02b #23, Remove forwarding exports from Windows packaging](https://github.com/gaboopa/pokerogue-electron/issues/23). ready-for-agent; blockers #17.
+- [S03 #24, Return a filtered artifact list from manifest merging](https://github.com/gaboopa/pokerogue-electron/issues/24). ready-for-agent; blockers #17.
+- [S04 #25, State shared development packaging settings once](https://github.com/gaboopa/pokerogue-electron/issues/25). ready-for-agent; blockers #17.
+- [S05 #26, Derive cheat boolean keys from typed defaults](https://github.com/gaboopa/pokerogue-electron/issues/26). ready-for-agent; blockers #17.
+- [S06a #27, Expand cheat editor handlers into ordered statements](https://github.com/gaboopa/pokerogue-electron/issues/27). ready-for-agent; blockers #17.
+- [S06b #28, Expand keymap creation error handling](https://github.com/gaboopa/pokerogue-electron/issues/28). ready-for-agent; blockers #17.
+- [P01 #29, Stream release artifact hashing instead of buffering it](https://github.com/gaboopa/pokerogue-electron/issues/29). ready-for-agent; blockers #17.
 
 ## Dependencies and ownership
 
@@ -120,10 +122,10 @@ Recommended dispatch batches: R01/R02/R03, then R04 plus R07/R09, then R05/R08/R
 
 ### After R07 through R09
 
-- [ ] Synchronization validation runs with executable/repository paths containing spaces and without a shell.
-- [ ] The actual report-and-stage sequence preserves its review report.
+- [x] Synchronization validation runs with executable/repository paths containing spaces and without a shell.
+- [x] The actual report-and-stage sequence preserves its review report.
 - [x] Editor load and Reset to Vanilla can repair null local configuration.
-- [ ] Integrated npm test passes. Do not run synchronization against the real upstream checkout merely to verify fixture coverage.
+- [x] Integrated npm test passes. Do not run synchronization against the real upstream checkout merely to verify fixture coverage.
 
 ### After R10 and R11
 
@@ -139,6 +141,8 @@ Recommended dispatch batches: R01/R02/R03, then R04 plus R07/R09, then R05/R08/R
 - [ ] Artifact hashes, source revisions, Release contract validation, and local/public macOS policy are recorded.
 - [ ] Every required ticket and any R11 corrective follow-up is complete.
 - [ ] A human reviews the evidence before publishing a release.
+
+- [V01 #30, Prepare isolated Windows release validation without publishing](https://github.com/gaboopa/pokerogue-electron/issues/30). ready-for-agent; preparation blockers none. This support task was split from R12 on 2026-10-04; executing the workflow waits for R10/R11.
 
 ### Optional queue checkpoints
 
