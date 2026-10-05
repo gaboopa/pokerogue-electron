@@ -171,6 +171,7 @@ async function main() {
   log("Running wrapper tests...");
   await run("npm", ["test"], { cwd: wrapperRoot, env });
   log("Building the local ad-hoc signed Apple Silicon DMG...");
+  env.NODE_OPTIONS = [env.NODE_OPTIONS, `--require=${JSON.stringify(join(wrapperRoot, "scripts", "mac-signing-fs.cjs"))}`].filter(Boolean).join(" ");
   await run("npm", createLocalPackageArguments(version), { cwd: wrapperRoot, env });
   const artifact = await findArtifact(version);
   log("Verifying the local DMG and ad-hoc signature...");

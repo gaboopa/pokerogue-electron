@@ -78,7 +78,9 @@ jobs:
           npm exec --yes --package="pnpm@$PNPM_VERSION" -- pnpm --dir "$POKEROGUE_GAME_PATH" install --frozen-lockfile
 
       - name: Run wrapper tests including native Electron probes
-        run: npm test
+        run: |
+          npm test
+          node test/mac-signing-fs.test.cjs
 
       - name: Build the upstream game and unsigned arm64 DMG
         run: npm run package:mac -- --publish never
@@ -91,9 +93,7 @@ jobs:
 
       - name: Create and verify a separate local ad-hoc DMG
         run: |
-          ulimit -n 65536
-          echo "Local signing open-file limit: $(ulimit -n)"
-          npm exec -- electron-builder --mac dmg --arm64 --publish never \
+          node --require ./scripts/mac-signing-fs.cjs ./node_modules/electron-builder/cli.js --mac dmg --arm64 --publish never \
             -c.mac.identity=- -c.mac.hardenedRuntime=false -c.dmg.sign=false \
             -c.directories.output=release/local \
             '-c.mac.artifactName=PokeRogue-Offline-${version}-macos-arm64-LOCAL-ONLY-DO-NOT-DISTRIBUTE.${ext}'
