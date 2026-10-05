@@ -3,7 +3,7 @@
 Goal: complete all updates in tasks/plan.md. The user authorized Luna dispatch and selected validation-only GitHub Actions for macOS builds.
 
 Primary integration branch: codex/offline-review-updates.
-Latest combined verification: npm test, 134 passed, 0 failed, 0 skipped on Windows x64 with Node v24.18.0 and Electron 42.11.10, after the production cold worker integrated with its final cleanup and reporter corrections.
+Latest combined verification: npm test, 145 passed, 0 failed, 0 skipped on Windows x64 with Node v24.18.0 and Electron 42.11.10, after manual Backup and Update cold continuations integrated with their review corrections.
 This is not native release clearance.
 
 | Task | Current evidence |
@@ -24,12 +24,15 @@ This is not native release clearance.
 | R14 #31, R15 #32 | Windows cold-capture prototype and atomic publication reviewed and integrated; issues closed |
 | R16 #33 | Integrated 8bdff68/6ba9ab6/5d66719; independent stale-token reproduction rejected; cross-process ownership and explicit dead-owner recovery verified; issue closed |
 | R17 #34 | Production bootstrap/worker integrated db1b4bd; three native Windows rounds and primary 134/134 suite passed; issue closed |
-| R18-R20 #35-#37 | Four user-flow continuations and packaged proof remain open and sequential |
+| R18 #35 | Integrated 7a62757/73aa2fb/6f6eeb8; root combined 145/145, installer-approval mutation caught, stale Update token rejected, native restart/veto routing checked |
+| R19-R20 #36-#37 | Restore/cheat continuations and actual packaged proof remain open and sequential |
 | S01, S02a, S02b, S03, S04, S05, S06a, S06b, P01 | All nine integrated and issues #21-#29 closed; combined 119/119 passing |
 
-Dispatch policy after the usage-limit interruption: one active Luna worker, with focused verification and primary combined checks at integration checkpoints. R16/R17 are complete. The fresh R18 #35 session is correcting its first draft after review. Other sessions remain stopped. Read current agent/tool status and Git state before assuming a worker remains live.
+Dispatch policy after the usage-limit interruption: one active Luna worker, with focused verification and primary combined checks at integration checkpoints. R16-R18 are complete. R19 #36 is the next slice, with a fresh focused Luna session. Other sessions remain stopped. Read current agent/tool status and Git state before assuming a worker remains live.
 
 R18 review checkpoint: candidate 80d89b1 is not integrated. Its focused coordinator tests passed 4/4, but the full candidate suite passed 137/138. Review found a worker argument mismatch, missing main-flow behavioral coverage, and continuation ownership/failure handling that needs correction. The same single Luna session is repairing these issues. The scope includes a fourth file, the existing window-lifecycle test, to replace its live-copy expectation while retaining destroyed-window and cancellation checks. The primary branch remains at the verified 134/134 checkpoint.
+
+R18 accepted checkpoint: the candidate above was corrected in 65e5755 and be3e53a, then integrated as 7a62757, 73aa2fb, and 6f6eeb8. Focused behavior/lifecycle tests passed 18/18; primary npm test passed 145/145 with zero skips. Live shutdown failures retain terminal intents and admission until a fresh startup acknowledges them; persistence failures are reported and do not admit another request. Independent installer-approval mutation failed its behavioral test, and in-flight Update revalidation rejected a retired token while preserving the new revision-0 journal. Root's hidden native-window fixture observed a real relaunch child, no worker on veto, and visible injected relaunch failure. This tests routing, not packaged cold capture or native release clearance. Logs remain under ignored .local-build/luna-plan.
 
 Review evidence: restore/download/keyboard/cheat guard mutations failed their regression suites and original bytes were restored. Inventory corruption rejection was independently exercised through the worker's disposable mutated module. Combined tests run on integrated code.
 
