@@ -36,14 +36,15 @@ foreach ($mutation in @('identity', 'hive', 'location')) {
 }
 Write-Output 'NSIS registry lookup and install containment checks passed without accessing the registry.'
 
-$auditRoot = Join-Path $env:TEMP "nsis-wait-check-$([guid]::NewGuid().ToString('N'))"
+$auditRoot = [System.IO.Path]::GetFullPath((Join-Path $env:TEMP "nsis-wait-check-$([guid]::NewGuid().ToString('N'))"))
 $installRoot = Join-Path $auditRoot 'installation with spaces'
 New-Item -ItemType Directory -Path $installRoot | Out-Null
 $uninstaller = Join-Path $installRoot 'Uninstall PokeRogue Offline.exe'
 Set-Content -LiteralPath $uninstaller -Value 'inert uninstaller fixture'
 function Invoke-SilentInstaller {
   param([string]$Path, [string]$AllowedRoot, [string[]]$Arguments)
-  if ($Path -cne (Join-Path $auditRoot 'owned-uninstaller.exe') -or $AllowedRoot -cne $auditRoot) { throw 'Uninstaller copy escaped its owned audit root.' }
+  $expectedCopy = [System.IO.Path]::GetFullPath((Join-Path $auditRoot 'owned-uninstaller.exe'))
+  if (-not $Path.Equals($expectedCopy, [System.StringComparison]::OrdinalIgnoreCase) -or -not $AllowedRoot.Equals($auditRoot, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Uninstaller copy escaped its owned audit root: $Path (expected $expectedCopy); root $AllowedRoot (expected $auditRoot)." }
   if ((Get-FileHash -LiteralPath $Path).Hash -cne (Get-FileHash -LiteralPath $uninstaller).Hash) { throw 'Uninstaller copy changed bytes.' }
   if ($Arguments.Count -ne 2 -or $Arguments[0] -cne '/S' -or $Arguments[1] -cne "_?=$installRoot") { throw 'Direct NSIS uninstall arguments are incorrect.' }
   $script:uninstallChecked = $true
