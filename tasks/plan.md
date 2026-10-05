@@ -2,7 +2,7 @@
 
 Prepared 2026-10-03 from the supplied PokeRogue Offline repository review.
 Verified repository baseline: main at 6626c70. The working tree was clean before planning.
-Status: user approved agent dispatch and all updates on 2026-10-03. All nine original correctness tasks, dependency retesting, and atomic Backup publication are integrated. Cold capture, optional cleanup, and native release gates remain open; current assignments and verification appear in progress.md.
+Status: user approved agent dispatch and all updates on 2026-10-03, then explicitly authorized completing, merging, and pushing them on 2026-10-05. All implementation tasks and optional cleanup are integrated. Windows packaged proof and both native CI build validations passed at dccf62f; hands-on release QA remains open in #19/#20. Final evidence appears in progress.md.
 
 Current implementation evidence is recorded in [progress.md](progress.md). The all-updates goal approves the optional queue as well as correctness work.
 
@@ -82,9 +82,9 @@ A reusable assignment prompt:
 ### Checkpoint: Cold capture proof and integration
 
 - [x] R14 proves graceful exit/relaunch, source ownership lock, and isolated worker profile on Windows with Electron 42.11.10; retain packaged/macOS verification gates and stop the design if their proof fails.
-- [ ] The packaged worker never opens a session against the source profile before copying and all three storage directories remain in scope; document Session Storage browsing-context limits precisely.
-- [ ] All four Backup call flows resume once after success, fail visibly on cancellation/veto/error/interruption, and do not trust persisted paths or replay operations.
-- [ ] R20 passes against the actual packaged app; until then #19/#20 stay blocked by #37.
+- [x] The Windows packaged worker never opens a session against the source profile before copying and all three storage directories remain in scope; Session Storage browsing-context limits are documented.
+- [x] All four Windows packaged Backup flows resume once after success; cancellation/veto/error/interruption and replay checks passed within the recorded fixture/interruption limits.
+- [x] R20 passes against the actual Windows package. Native packaged macOS behavior remains unverified, and #19/#20 retain their hands-on release gates.
 
 ### Phase 5, native release validation
 
@@ -153,9 +153,9 @@ Recommended dispatch batches: R01/R02/R03, then R04 plus R07/R09, then R05/R08/R
 
 ### After R12 and R13
 
-- [ ] Full upstream-game build and release packaging have actual native evidence for both supported platforms.
+- [x] Full upstream-game build and release packaging have actual native evidence for both supported platforms.
 - [ ] Windows install/upgrade/uninstall and macOS DMG/Dock scenarios pass with disposable data.
-- [ ] Artifact hashes, source revisions, Release contract validation, and local/public macOS policy are recorded.
+- [x] Artifact hashes, source revisions, Release contract validation, and local/public macOS package policy are recorded; actual Gatekeeper QA remains pending.
 - [ ] Every required ticket and any R11 corrective follow-up is complete.
 - [ ] A human reviews the evidence before publishing a release.
 
