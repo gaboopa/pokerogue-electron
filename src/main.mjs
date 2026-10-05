@@ -263,10 +263,12 @@ async function resumeColdBackupIntent() {
       return;
     }
     if (current.operation === "cheat") {
-      await applyCheatConfiguration({ path: paths().cheats, requested: resumed.continuation.config, backupCompleted: true, relaunch: async () => { app.relaunch(); app.quit(); } });
-      startupRestarting = true;
+      await applyCheatConfiguration({ path: paths().cheats, requested: resumed.continuation.config, backupCompleted: true, relaunch: async () => {} });
       await transitionIntent({ userData, expectedToken: current.token, expectedRevision: resumed.intent.revision, nextState: "completed" });
       await clearTerminalIntent({ userData, expectedToken: current.token, startupConfirmed: true });
+      startupRestarting = true;
+      app.relaunch();
+      app.quit();
       return;
     }
     const install = await showMessageBox({ type: "info", title: "Update downloaded", message: process.platform === "darwin" ? "Open the DMG, drag PokeRogue Offline into Applications, and replace the existing copy. macOS may ask you to approve this unsigned build in System Settings." : "Close the game and run the installer to update.", detail: resumed.continuation.installerPath, buttons: ["Open Update", "Later"], defaultId: 0, cancelId: 1 });
@@ -300,8 +302,23 @@ async function chooseAndRestore() {
   if (result.canceled || !result.filePaths[0]) return { restored: false };
   const selected = result.filePaths[0];
   await validateBackup(selected);
+  const restart = await showMessageBox({ type: "warning", title: "Restart to restore Backup", message: "PokeRogue Offline must close briefly to create a consistent safety Backup before restoring.", detail: "Choose Restart to continue, or Cancel to keep your current Save data.", buttons: ["Restart and Restore", "Cancel"], defaultId: 0, cancelId: 1 });
+  if (restart.response !== 0) return { restored: false, cancelled: true };
+  await retireSafeColdRestoreForReplacement();
   const requested = await requestColdBackup("restore", { selectedBackup: selected });
   return { restored: false, requested: requested.requested === true };
+}
+
+async function retireSafeColdRestoreForReplacement() {
+  let marker;
+  try { marker = JSON.parse(await readFile(restoreMarkerPath(), "utf8")); }
+  catch (error) { if (error.code === "ENOENT" || error instanceof SyntaxError) return; throw error; }
+  if (marker?.status !== "failed" || marker.recoveryRequired !== false || typeof marker.coldToken !== "string") return;
+  const userData = paths().userData;
+  const intent = await readCurrentIntent({ userData });
+  if (!intent || intent.token !== marker.coldToken || intent.operation !== "restore" || intent.state !== "resuming") return;
+  const failed = await transitionIntent({ userData, expectedToken: intent.token, expectedRevision: intent.revision, nextState: "failed", failure: { code: "restore-replaced", message: "The user approved a fresh Restore after the previous Restore safely rolled back." } });
+  await clearTerminalIntent({ userData, expectedToken: failed.token, startupConfirmed: true });
 }
 
 function restoreMarkerPath() {
@@ -445,6 +462,13 @@ async function applyPendingRestore() {
     return;
   }
   if (marker.status === "failed") {
+    if (marker.recoveryRequired === false) {
+      const intent = await readCurrentIntent({ userData: paths().userData });
+      if (intent?.operation === "restore" && intent.state === "captured") {
+        // The validated fresh continuation replaces this marker atomically below.
+        return;
+      }
+    }
     startupRecoveryBlocked = marker.recoveryRequired === true;
     await showRestoreRecovery(marker, marker.error?.message ?? "The previous restore failed.", { blocked: startupRecoveryBlocked });
     return;

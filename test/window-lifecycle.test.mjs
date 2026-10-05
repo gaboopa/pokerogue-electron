@@ -37,7 +37,7 @@ async function createHarness() {
     let rejectStartup;
     let stateResolveKeymapStarted;
     let stateReleaseKeymap;
-    const state = { listeners: {}, onceListeners: {}, instances: [], menu: [], dialogs: [], dialogParents: [], opened: [], events: [], flushes: 0, backups: 0, quits: 0, relaunches: 0, relaunchArgs: null, unhandled: [], dialogResponses: JSON.parse(process.env.R06_DIALOG_RESPONSES || "[]"), startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), keymapStarted: new Promise(resolve => { stateResolveKeymapStarted = resolve; }), keymapGate: new Promise(resolve => { stateReleaseKeymap = resolve; }) };
+    const state = { listeners: {}, onceListeners: {}, instances: [], menu: [], dialogs: [], dialogParents: [], opened: [], events: [], relaunchSnapshots: [], quitSnapshots: [], flushes: 0, backups: 0, quits: 0, relaunches: 0, relaunchArgs: null, unhandled: [], dialogResponses: JSON.parse(process.env.R06_DIALOG_RESPONSES || "[]"), startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), keymapStarted: new Promise(resolve => { stateResolveKeymapStarted = resolve; }), keymapGate: new Promise(resolve => { stateReleaseKeymap = resolve; }) };
     state.releaseKeymap = () => stateReleaseKeymap();
     state.signalKeymapStarted = () => stateResolveKeymapStarted();
     state.fireApp = (name, event = {}) => { const once = state.onceListeners[name] ?? []; delete state.onceListeners[name]; for (const callback of once) callback(event); const listener = state.listeners[name]; if (typeof listener === "function") listener(event); };
@@ -74,7 +74,7 @@ async function createHarness() {
     export const app = {
       isPackaged: false, setName() {}, getAppPath() { return process.env.R06_APP_PATH; }, getPath(name) { return name === "userData" ? process.env.R06_USER_DATA : process.env.TEMP; }, getVersion() { return "test"; },
       whenReady() { return { then(callback) { Promise.resolve().then(callback).then(resolveStartup, rejectStartup); return state.startupPromise; } }; },
-      on(name, callback) { state.listeners[name] = callback; }, once(name, callback) { (state.onceListeners[name] ??= []).push(callback); }, removeListener(name, callback) { state.onceListeners[name] = (state.onceListeners[name] ?? []).filter(item => item !== callback); }, relaunch(options) { state.relaunches++; state.relaunchArgs = options?.args ?? []; }, quit() { state.quits++; },
+      on(name, callback) { state.listeners[name] = callback; }, once(name, callback) { (state.onceListeners[name] ??= []).push(callback); }, removeListener(name, callback) { state.onceListeners[name] = (state.onceListeners[name] ?? []).filter(item => item !== callback); }, relaunch(options) { state.relaunches++; state.relaunchArgs = options?.args ?? []; state.relaunchSnapshots.push({ current: state.coordinator?.getCurrent(), clearCalls: state.coordinator?.clearCalls ?? 0 }); }, quit() { state.quits++; state.quitSnapshots.push({ current: state.coordinator?.getCurrent(), clearCalls: state.coordinator?.clearCalls ?? 0 }); },
     };
     export const dialog = {
       async showMessageBox(...args) { const options = args.at(-1); state.dialogs.push({ title: options.title, message: options.message, buttons: options.buttons }); state.dialogParents.push(args.length > 1 ? args[0]?.role ?? "destroyed" : undefined); return { response: state.dialogResponses.shift() ?? options.cancelId ?? options.defaultId ?? 0 }; },
@@ -162,10 +162,12 @@ async function createHarness() {
       state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
       await new Promise(resolve => setImmediate(resolve));
       state.coldSnapshot = { flushes: state.flushes, backups: state.backups, relaunches: state.relaunches, args: state.relaunchArgs, created: state.coordinator.created, dialogs: state.dialogs };
-    } else if (process.env.R06_SCENARIO === "restore-request") {
+    } else if (process.env.R06_SCENARIO === "restore-request" || process.env.R06_SCENARIO === "restore-cancel") {
       await click("Restore Backup…");
-      state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
-      await new Promise(resolve => setImmediate(resolve));
+      if (process.env.R06_SCENARIO === "restore-request") {
+        state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
+        await new Promise(resolve => setImmediate(resolve));
+      }
       state.coldSnapshot = { flushes: state.flushes, validations: state.validations, relaunches: state.relaunches, args: state.relaunchArgs, created: state.coordinator.created, games: games().length };
     } else if (["cheat-request", "cheat-cancel", "cheat-veto"].includes(process.env.R06_SCENARIO)) {
       await click("Configure Cheats...");
@@ -176,7 +178,7 @@ async function createHarness() {
         await new Promise(resolve => setImmediate(resolve));
       }
       const stored = await (await import("node:fs/promises")).readFile(process.env.R06_USER_DATA + "/cheats.json", "utf8").catch(error => error.code === "ENOENT" ? null : Promise.reject(error));
-      state.coldSnapshot = { result, created: state.coordinator.created, transitions: state.coordinator.transitions, relaunches: state.relaunches, stored, games: games().length };
+      state.coldSnapshot = { result, created: state.coordinator.created, transitions: state.coordinator.transitions, relaunches: state.relaunches, relaunchSnapshots: state.relaunchSnapshots, quitSnapshots: state.quitSnapshots, stored, games: games().length };
     } else if (process.env.R06_SCENARIO === "cold-veto" || process.env.R06_SCENARIO === "cold-persist-failure") {
       await click("Back Up Saves…");
       if (process.env.R06_SCENARIO === "cold-persist-failure") state.coordinator.failNextTransition = true;
@@ -233,7 +235,7 @@ async function createHarness() {
       state.listeners["window-all-closed"]();
     }
     const snapshot = {
-      pid: process.pid, platform: process.platform, quits: state.quits, relaunches: state.relaunches, initialGame: game ? { reloads: game.reloads, shows: game.shows, destroyed: game.destroyed } : null,
+      pid: process.pid, platform: process.platform, quits: state.quits, relaunches: state.relaunches, relaunchSnapshots: state.relaunchSnapshots, quitSnapshots: state.quitSnapshots, initialGame: game ? { reloads: game.reloads, shows: game.shows, destroyed: game.destroyed } : null,
       games: games().length, instances: state.instances.map(window => ({ role: window.role, destroyed: window.destroyed, reloads: window.reloads, shows: window.shows, hides: window.hides })),
       urls: state.urls ?? [], dialogs: state.dialogs, dialogParents: state.dialogParents, opened: state.opened, flushes: state.flushes, backups: state.backups,
       afterRepeatedActivation: state.afterRepeatedActivation, afterStaleCallbacks: state.afterStaleCallbacks, staleSnapshot: state.staleSnapshot,
@@ -254,7 +256,7 @@ async function launch(scenario) {
   await mkdir(selectedBackup);
   const result = spawnSync(process.execPath, ["--import", pathToFileURL(h.bootstrap).href, h.runner], {
     encoding: "utf8", timeout: 10000,
-    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SELECTED_BACKUP: ["restore-request", "restore-resume"].includes(scenario) ? selectedBackup : "", R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: ["cold-request", "cold-veto", "cold-persist-failure", "update-request", "update-open", "update-tampered", "cheat-request", "cheat-veto"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "update-interrupted" ? "update-resuming" : scenario === "restore-resume" ? "restore-captured" : scenario === "restore-interrupted" ? "restore-resuming" : scenario === "cheat-resume" ? "cheat-captured" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "" },
+    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SELECTED_BACKUP: ["restore-request", "restore-cancel", "restore-resume"].includes(scenario) ? selectedBackup : "", R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: ["cold-request", "cold-veto", "cold-persist-failure", "update-request", "update-open", "update-tampered", "cheat-request", "cheat-veto", "restore-request"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "update-interrupted" ? "update-resuming" : scenario === "restore-resume" ? "restore-captured" : scenario === "restore-interrupted" ? "restore-resuming" : scenario === "cheat-resume" ? "cheat-captured" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "" },
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   return JSON.parse(await readFile(resultPath, "utf8"));
@@ -331,6 +333,11 @@ test("Restore validates its selection and requests a cold safety Backup before r
   assert.equal(state.coldSnapshot.created[0].operation, "restore");
   assert.match(state.coldSnapshot.created[0].payload.selectedBackup, /selected-backup$/);
   assert.equal(state.coldSnapshot.games, 1);
+  const cancelled = await launch("restore-cancel");
+  assert.equal(cancelled.coldSnapshot.validations, 1);
+  assert.equal(cancelled.coldSnapshot.flushes, 0);
+  assert.equal(cancelled.coldSnapshot.created.length, 0);
+  assert.equal(cancelled.coldSnapshot.relaunches, 0);
 });
 
 test("cheat approval queues cold Backup without writing, while cancellation queues nothing", async () => {
@@ -375,6 +382,8 @@ test("captured cheat continuation writes metadata and relaunches without opening
   assert.equal(stored.usage.applyCount, 1);
   assert.equal(stored.usage.everEnabled, true);
   assert.ok(state.coldSnapshot.transitions.some(intent => intent.state === "completed"));
+  assert.deepEqual(state.relaunchSnapshots, [{ current: null, clearCalls: 1 }]);
+  assert.deepEqual(state.quitSnapshots, [{ current: null, clearCalls: 1 }]);
 });
 
 test("a shutdown veto or window close cancellation cannot leave a queued worker for a later quit", async () => {

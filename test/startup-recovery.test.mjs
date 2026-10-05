@@ -32,12 +32,12 @@ async function harness() {
   }`);
   await writeFile(bootstrap, `import { register } from "node:module"; register(${JSON.stringify(pathToFileURL(loader).href)});`);
   await writeFile(electron, `let resolveStartup, rejectStartup, signalRestore, releaseRestore;
-    const state = { windows: 0, urls: [], dialogs: [], quits: 0, opened: [], listeners: {}, onceListeners: {}, startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), restoreStarted: new Promise(resolve => { signalRestore = resolve; }), restoreRelease: new Promise(resolve => { releaseRestore = resolve; }) };
+    const state = { windows: 0, urls: [], dialogs: [], quits: 0, opened: [], listeners: {}, onceListeners: {}, dialogResponses: JSON.parse(process.env.R05_DIALOG_RESPONSES || "[]"), startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), restoreStarted: new Promise(resolve => { signalRestore = resolve; }), restoreRelease: new Promise(resolve => { releaseRestore = resolve; }) };
     state.signalRestoreStarted = () => signalRestore(); state.releaseRestore = () => releaseRestore();
     globalThis.__r05 = state;
     export const app = { isPackaged: false, setName() {}, getAppPath() { return process.env.R05_APP_PATH; }, getPath(n) { return n === "userData" ? process.env.R05_USER_DATA : process.env.TEMP; }, getVersion() { return "test"; }, whenReady() { return { then(callback) { Promise.resolve().then(callback).then(resolveStartup, rejectStartup); return state.startupPromise; } }; }, on(name, fn) { state.listeners[name] = fn; }, once(name, fn) { (state.onceListeners[name] ??= []).push(fn); }, removeListener(name, fn) { state.onceListeners[name] = (state.onceListeners[name] ?? []).filter(item => item !== fn); }, relaunch() { state.relaunch = true; }, quit() { state.quits++; const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }; const callbacks = state.onceListeners["will-quit"] ?? []; delete state.onceListeners["will-quit"]; for (const fn of callbacks) fn(event); } };
     export class BrowserWindow { constructor() { state.windows++; this.webContents = { setWindowOpenHandler() {}, on() {}, send() {}, toggleDevTools() {}, session: { flushStorageData: async () => {} } }; } static getAllWindows() { return Array.from({ length: state.windows }); } isDestroyed() { return false; } isVisible() { return true; } isFullScreen() { return false; } show() {} focus() {} hide() {} once() {} on() {} async loadURL(url) { state.urls.push(url); } async loadFile() {} reload() {} setFullScreen() {} }
-    export const dialog = { async showMessageBox(...args) { const o = args.at(-1); state.dialogs.push({ title: o.title, message: o.message, detail: o.detail, buttons: o.buttons, cancelId: o.cancelId }); const choice = process.env.R05_DIALOG_RESPONSE ?? "default"; return { response: choice === "cancel" ? o.cancelId : choice === "default" ? o.defaultId : Number(choice) }; }, async showOpenDialog() { return { canceled: false, filePaths: [process.env.R05_NEW_SELECTION || ""] }; }, showErrorBox(title, message) { state.dialogs.push({ title, message }); } };
+    export const dialog = { async showMessageBox(...args) { const o = args.at(-1); state.dialogs.push({ title: o.title, message: o.message, detail: o.detail, buttons: o.buttons, cancelId: o.cancelId }); const choice = state.dialogResponses.length ? String(state.dialogResponses.shift()) : process.env.R05_DIALOG_RESPONSE ?? "default"; return { response: choice === "cancel" ? o.cancelId : choice === "default" ? o.defaultId : Number(choice) }; }, async showOpenDialog() { return { canceled: false, filePaths: [process.env.R05_NEW_SELECTION || ""] }; }, showErrorBox(title, message) { state.dialogs.push({ title, message }); } };
     export const ipcMain = { handle() {}, on() {} };
     export const Menu = { buildFromTemplate(v) { return v; }, setApplicationMenu() {} };
     export const protocol = { registerSchemesAsPrivileged() {}, handle() {} };
@@ -318,7 +318,7 @@ test("malformed pending marker is recorded failed before a fresh cold restore is
   await mkdir(userData, { recursive: true });
   const markerPath = join(userData, "pending-restore.json");
   await writeFile(markerPath, "{");
-  const result = await launch(h, userData, { R05_DIALOG_RESPONSE: "1", R05_NEW_SELECTION: join(h.root, "fresh-backup") });
+  const result = await launch(h, userData, { R05_DIALOG_RESPONSES: "[1,0]", R05_NEW_SELECTION: join(h.root, "fresh-backup") });
   assert.equal(result.relaunch, true);
   assert.equal(result.windows, 0, "a scheduled restart must not create a window in the old process");
   assert.deepEqual(result.urls, []);
@@ -354,7 +354,7 @@ test("failed marker writes allow choosing fresh only when the recovery scan is c
   await mkdir(clearUserData, { recursive: true });
   await writeFile(join(clearUserData, "pending-restore.json"), "{");
   const selected = join(clear.root, "fresh-backup");
-  const clearResult = await launch(clear, clearUserData, { R05_FAIL_FAILED_WRITE: "1", R05_DIALOG_RESPONSE: "2", R05_NEW_SELECTION: selected });
+  const clearResult = await launch(clear, clearUserData, { R05_FAIL_FAILED_WRITE: "1", R05_DIALOG_RESPONSES: "[2,0]", R05_NEW_SELECTION: selected });
   assert.equal(clearResult.relaunch, true);
   assert.ok(clearResult.dialogs[0].buttons.includes("Choose another Backup"));
   assert.equal(clearResult.coordinator.created[0].operation, "restore");
