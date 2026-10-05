@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
@@ -100,7 +100,7 @@ async function launchPackage({ exe, root, userData, remotePort, firstInspectorPo
     const app = await attachPackaged(exe, firstInspectorPort, config, ownedPids, ownedPorts);
     return { app, ownedPids, ownedPorts, config, remotePort, nextPort: firstInspectorPort + 1, exe, root, userData };
   } catch (error) {
-    await cleanupOwned(ownedPids, ownedPorts, exe);
+    await cleanupOwned(ownedPids, ownedPorts, exe, root);
     throw error;
   }
 }
@@ -175,7 +175,7 @@ async function stopApp(state) {
     state.app.debuggerClient.close();
     await waitForPidExit(state.app.pid, 10_000).catch(() => {});
   }
-  await cleanupOwned(state.ownedPids, state.ownedPorts, state.exe);
+  await cleanupOwned(state.ownedPids, state.ownedPorts, state.exe, state.root);
 }
 
 async function nextRelaunchedApp(state) {
@@ -233,7 +233,7 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
   const root = await mkdtemp(join(outputRoot, "r20-run-"));
   const profiles = [];
   const states = [];
-  let portBase = 19600;
+  let portBase = randomInt(16_000, 48_000);
   const newProfile = async () => {
     const profile = await mkdtemp(join(tmpdir(), "pokerogue-r20-packaged-profile-"));
     profiles.push(profile);
@@ -350,7 +350,7 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     assert.equal(vetoIntent.state, "failed");
     assert.equal((await backupDirectories(vetoState.userData)).length, 0);
     assert.equal(getEvents(root).some(event => event.pid === vetoPid && event.event === "relaunch"), false, "quit veto must never start a worker or try a live copy");
-    await cleanupOwned(vetoState.ownedPids, vetoState.ownedPorts, exe);
+    await cleanupOwned(vetoState.ownedPids, vetoState.ownedPorts, exe, root);
     await waitForPidExit(vetoPid);
     const vetoRecovery = await launch("quit-veto-recovery", 0, vetoState.userData);
     await waitForGame(vetoRecovery.remotePort);
@@ -397,7 +397,7 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     appendFileSync(join(root, "events.jsonl"), `${JSON.stringify({ at: new Date().toISOString(), event: "source-exit-observed", pid: interruptedSourcePid })}\n`);
     const heldWorker = await nextRelaunchedApp({ ...interruptedState, app: { ...interruptedState.app, pid: interruptedSourcePid } });
     assert.ok(heldWorker.app.marker.heldAtBootstrap, "interruption fixture must stop before worker bootstrap code can copy data");
-    await cleanupOwned(heldWorker.ownedPids, heldWorker.ownedPorts, exe);
+    await cleanupOwned(heldWorker.ownedPids, heldWorker.ownedPorts, exe, root);
     await waitForPidExit(heldWorker.app.pid);
     const interruptedRecovery = await launch("interrupted-recovery", 0, heldWorker.userData);
     await waitForGame(interruptedRecovery.remotePort);
@@ -431,7 +431,33 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     await writeFile(join(root, "result.json"), `${JSON.stringify({ status: "failed", message: error.stack ?? error.message, package: { exe, executableSha256: expectedExeHash, appAsarSha256: expectedAsarHash, appCommit: sourceCommit }, flows: flowResults, eventsFile: join(root, "events.jsonl") }, null, 2)}\n`);
     throw error;
   } finally {
-    for (const state of states) await stopApp(state);
-    for (const profile of profiles) await removeProfile(profile);
+    const cleanupErrors = [];
+    for (const state of states) {
+      try { await stopApp(state); }
+      catch (error) { cleanupErrors.push(error.stack ?? error.message); }
+    }
+    if (!cleanupErrors.length) {
+      for (const profile of profiles) {
+        try { await removeProfile(profile); }
+        catch (error) { cleanupErrors.push(error.stack ?? error.message); }
+      }
+    }
+    if (cleanupErrors.length) {
+      let previous = {};
+      try { previous = JSON.parse(await readFile(join(root, "result.json"), "utf8")); }
+      catch {}
+      const evidence = {
+        ...previous,
+        status: "failed",
+        outcomes: "teardown failed; this run is not a clean pass",
+        ...(previous.message ? { testFailure: previous.message } : {}),
+        cleanupErrors,
+        package: previous.package ?? { exe, executableSha256: expectedExeHash, appAsarSha256: expectedAsarHash, appCommit: sourceCommit },
+        flows: flowResults,
+        eventsFile: join(root, "events.jsonl"),
+      };
+      await writeFile(join(root, "result.json"), `${JSON.stringify(evidence, null, 2)}\n`);
+      throw new AggregateError(cleanupErrors.map(message => new Error(message)), "Packaged probe teardown failed");
+    }
   }
 });

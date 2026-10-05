@@ -1,14 +1,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const http = require("node:http");
-const { spawn, execFile } = require("node:child_process");
+const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const execFileAsync = promisify(execFile);
 
 const timeoutMs = 45_000;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const readJson = file => JSON.parse(fs.readFileSync(file, "utf8"));
-
 function requestJson(port, route) {
   return new Promise((resolve, reject) => {
     const request = http.get({ host: "127.0.0.1", port, path: route }, response => {
@@ -129,8 +127,11 @@ function installPackagedProbe(config) {
   const { shell } = packageRequire("electron");
   const fs = process.getBuiltinModule("node:fs");
   const root = process.env.POKEROGUE_R20_RESULTS;
+  if (typeof root !== "string" || appPath.resolve(root) !== appPath.resolve(config.resultsRoot)) throw new Error("Probe results root differs from the spawned process environment");
   const userData = config.userData;
   const sessionData = config.sessionData;
+  const inspectorArgument = process.argv.find(argument => argument.startsWith("--inspect-brk="));
+  const inspectorPort = Number(inspectorArgument?.split(":").at(-1));
   if (app.isReady()) throw new Error("Profile injection occurred after Electron readiness");
   app.setPath("userData", userData);
   app.setPath("sessionData", sessionData);
@@ -139,7 +140,7 @@ function installPackagedProbe(config) {
   app.commandLine.appendSwitch("remote-debugging-port", String(config.remotePort));
 
   const write = record => fs.appendFileSync(appPath.join(root, "events.jsonl"), `${JSON.stringify({ at: new Date().toISOString(), pid: process.pid, ...record })}\n`);
-  write({ event: "pre-bootstrap", packaged: app.isPackaged, ready: app.isReady(), argv: process.argv, userData, sessionData, electron: process.versions.electron, chromium: process.versions.chrome, node: process.versions.node });
+  write({ event: "pre-bootstrap", inspectorPort, packaged: app.isPackaged, ready: app.isReady(), argv: process.argv, userData, sessionData, electron: process.versions.electron, chromium: process.versions.chrome, node: process.versions.node });
 
   const originalSetPath = app.setPath.bind(app);
   app.setPath = (name, value) => {
@@ -275,10 +276,10 @@ async function waitForPidExit(pid, timeout = timeoutMs) {
   throw new Error(`Packaged Electron PID ${pid} did not exit within ${timeout} ms`);
 }
 
-async function waitForOwnedPackageProcess(exe, port, ownedPids, ownedPorts) {
+async function waitForOwnedPackageProcess(exe, port, ownedPids, ownedPorts, timeout = timeoutMs) {
   const escapedExe = exe.replaceAll("'", "''");
   const script = `$p=Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq '${escapedExe}' -and $_.CommandLine -like '*--inspect-brk=127.0.0.1:${port}*' } | Select-Object -First 1; if ($p) { [Console]::WriteLine($p.ProcessId); [Console]::WriteLine($p.ExecutablePath); [Console]::WriteLine($p.CommandLine) }`;
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Date.now() + timeout;
   let lastError;
   while (Date.now() < deadline) {
     try {
@@ -297,17 +298,38 @@ async function waitForOwnedPackageProcess(exe, port, ownedPids, ownedPorts) {
   throw new Error(`Packaged process for inspector port ${port} did not start: ${lastError?.message ?? "no matching executable command line"}`);
 }
 
-async function cleanupOwned(ownedPids, ownedPorts, exe) {
-  for (const pid of ownedPids) {
-    try { process.kill(pid, 0); }
-    catch (error) { if (error.code === "ESRCH") { ownedPorts.delete(pid); continue; } }
-    const port = ownedPorts.get(pid);
-    if (!port) continue;
-    const script = `$p=Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; if ($p -and $p.ExecutablePath -eq '${exe.replaceAll("'", "''")}' -and $p.CommandLine -like '*--inspect-brk=127.0.0.1:${port}') { Stop-Process -Id ${pid} -Force }`;
-    await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, timeout: 10_000 }).catch(() => {});
-    ownedPorts.delete(pid);
+async function cleanupOwned(ownedPids, ownedPorts, exe, resultsRoot) {
+  const knownPorts = new Set(ownedPorts.values());
+  const relaunches = () => {
+    if (!resultsRoot || !fs.existsSync(path.join(resultsRoot, "events.jsonl"))) return [];
+    const events = fs.readFileSync(path.join(resultsRoot, "events.jsonl"), "utf8").trim().split(/\r?\n/).filter(Boolean).map(JSON.parse);
+    return events.filter(value => value.event === "relaunch" && ownedPids.has(value.pid) && Number.isInteger(value.port) && !knownPorts.has(value.port) && !events.some(child => child.event === "pre-bootstrap" && child.inspectorPort === value.port));
+  };
+  const terminateOwned = async () => {
+    for (const pid of [...ownedPids]) {
+      try { process.kill(pid, 0); }
+      catch (error) { if (error.code === "ESRCH") { ownedPorts.delete(pid); continue; } }
+      const port = ownedPorts.get(pid);
+      if (!port) continue;
+      const script = `$p=Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; if ($p -and $p.ExecutablePath -eq '${exe.replaceAll("'", "''")}' -and $p.CommandLine -like '*--inspect-brk=127.0.0.1:${port}') { Stop-Process -Id ${pid} -Force }`;
+      await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, timeout: 10_000 });
+      await waitForPidExit(pid, 10_000);
+      if (resultsRoot) appendRecord(resultsRoot, { event: "cleanup-terminated-pid", pid, port, executable: exe });
+      ownedPorts.delete(pid);
+    }
+  };
+  await terminateOwned();
+  for (const relaunch of relaunches()) {
+    try {
+      const child = await waitForOwnedPackageProcess(exe, relaunch.port, ownedPids, ownedPorts, 4_000);
+      appendRecord(resultsRoot, { event: "cleanup-registered-relaunch-child", parentPid: relaunch.pid, pid: child.pid, port: relaunch.port, executable: child.executable });
+    } catch (error) {
+      appendRecord(resultsRoot, { event: "cleanup-relaunch-child-absent", parentPid: relaunch.pid, port: relaunch.port, message: error.message });
+    }
   }
+  await terminateOwned();
   ownedPids.clear();
+  ownedPorts.clear();
 }
 
 async function connectGame(remotePort, expression) {
