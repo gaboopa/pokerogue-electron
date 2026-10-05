@@ -69,6 +69,7 @@ jobs:
         run: |
           npm test
           if ($LASTEXITCODE -ne 0) { throw 'Wrapper test suite failed' }
+          ./test/validate-windows-install.test.ps1
 
       - name: Build the upstream game and Windows x64 release installer
         run: |

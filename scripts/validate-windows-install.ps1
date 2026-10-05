@@ -16,6 +16,7 @@ if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [Sys
 if (-not $env:RUNNER_TEMP -or -not (Test-Path -LiteralPath $env:RUNNER_TEMP -PathType Container)) { throw 'RUNNER_TEMP is missing or invalid.' }
 
 $appId = 'com.gaboopa.pokerogueoffline'
+$appGuid = '9ee90960-c2e1-584d-beef-77fad84b6997'
 $productName = 'PokeRogue Offline'
 $previousVersion = '0.1.3'
 $previousManifestSha256 = '3aae963d64b62837bc64996b8d78696c7dfc1e873200e4104bf4d8a490247599'
@@ -76,7 +77,11 @@ function Get-Registration {
   if (-not $items[0].RegistryPath.StartsWith('HKEY_CURRENT_USER\', [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "The app is not registered per-user: $($items[0].RegistryPath)"
   }
-  if (-not $items[0].InstallLocation) { throw 'The uninstall registration has no install location.' }
+  if ($items[0].KeyName -cne $appGuid) { throw "Unexpected uninstall registry identity: $($items[0].KeyName)" }
+  # NSIS records InstallLocation under Software\APP_GUID, separately from its uninstall entry.
+  $installProperties = Get-ItemProperty -LiteralPath "HKCU:\Software\$appGuid"
+  $items[0].InstallLocation = [string]$installProperties.PSObject.Properties['InstallLocation']?.Value
+  if (-not $items[0].InstallLocation) { throw 'The NSIS installation registration has no install location.' }
   $installRoot = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Programs'))
   $items[0].InstallLocation = Get-FullPathWithin $items[0].InstallLocation $installRoot
   return $items[0]

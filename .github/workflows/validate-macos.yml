@@ -91,6 +91,8 @@ jobs:
 
       - name: Create and verify a separate local ad-hoc DMG
         run: |
+          ulimit -n 65536
+          echo "Local signing open-file limit: $(ulimit -n)"
           npm exec -- electron-builder --mac dmg --arm64 --publish never \
             -c.mac.identity=- -c.mac.hardenedRuntime=false -c.dmg.sign=false \
             -c.directories.output=release/local \
