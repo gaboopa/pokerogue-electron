@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_ORIGIN, PRODUCT_NAME, UPDATE_REPOSITORY } from "./constants.mjs";
-import { BackupRestoreError, createBackup, restoreBackup, validateBackup } from "./backup.mjs";
+import { BackupRestoreError, restoreBackup, validateBackup } from "./backup.mjs";
 import { applyCheatConfiguration } from "./cheats.mjs";
 import { createCheatController } from "./cheat-main.mjs";
 import { keymapModifiedAt, loadKeymap, resetKeymap } from "./keymap-store.mjs";
@@ -99,14 +99,6 @@ function toggleChartWindow(chart) {
     if (chartWindows.get(chart.id) === chartWindow) chartWindows.delete(chart.id);
   });
   void chartWindow.loadFile(join(moduleRoot, "src", "assets", chart.asset));
-}
-
-async function backupSaves(showConfirmation = true) {
-  const window = getLiveMainWindow();
-  if (window) await window.webContents.session.flushStorageData();
-  const output = await createBackup(paths().userData, paths().backupRoot);
-  if (showConfirmation) await showMessageBox({ type: "info", title: "Save backup complete", message: "Your saves were backed up.", detail: output });
-  return output;
 }
 
 function workerArgs(token) {
@@ -229,6 +221,12 @@ async function resumeColdBackupIntent() {
   const current = await readCurrentIntent({ userData });
   if (!current) return;
   if (!["manual", "update", "restore", "cheat"].includes(current.operation)) return;
+  if (current.operation === "restore" && current.state === "resuming") {
+    try {
+      const marker = JSON.parse(await readFile(restoreMarkerPath(), "utf8"));
+      if (marker?.status === "failed" && marker.recoveryRequired === false && marker.coldToken === current.token) return;
+    } catch (error) { if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error; }
+  }
   if (current.state === "completed") {
     await clearTerminalIntent({ userData, expectedToken: current.token, startupConfirmed: true });
     await showMessageBox({ type: "info", title: current.operation === "update" ? "Update backup complete" : "Save backup complete", message: current.operation === "update" ? "The required cold Backup completed." : "Your saves were backed up.", detail: current.capturedBackupPath ?? "" });

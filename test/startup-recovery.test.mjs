@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createBackup } from "../src/backup.mjs";
+import { createIntent, getCapturePaths, prepareResumeIntent, readCurrentIntent, transitionIntent } from "../src/backup-coordinator.mjs";
 
 const repo = dirname(dirname(fileURLToPath(import.meta.url)));
 const harnessRoots = [];
@@ -26,7 +28,10 @@ async function harness() {
   await writeFile(loader, `export async function resolve(specifier, context, nextResolve) {
     if (specifier === "electron") return { url: new URL("./electron.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R05_MAIN_URL && specifier === "./backup.mjs") return { url: new URL("./backup.mjs", import.meta.url).href, shortCircuit: true };
-    if (context.parentURL === process.env.R05_MAIN_URL && specifier === "./backup-coordinator.mjs") return { url: new URL("./coordinator.mjs", import.meta.url).href, shortCircuit: true };
+    if (context.parentURL === process.env.R05_MAIN_URL && specifier === "./backup-coordinator.mjs") {
+      if (process.env.R05_REAL_COORDINATOR) return nextResolve(specifier, context);
+      return { url: new URL("./coordinator.mjs", import.meta.url).href, shortCircuit: true };
+    }
     if (context.parentURL === process.env.R05_MAIN_URL && specifier === "node:fs/promises") return { url: new URL("./fs.mjs", import.meta.url).href, shortCircuit: true };
     return nextResolve(specifier, context);
   }`);
@@ -102,6 +107,31 @@ async function pending(userData, selected, overrides = {}) {
 async function attempts(userData) {
   try { return (await readFile(join(userData, "attempts.log"), "utf8")).trim().split(/\r?\n/).filter(Boolean); }
   catch (error) { if (error.code === "ENOENT") return []; throw error; }
+}
+
+async function seedSafeColdRestore(userData, root) {
+  const oldSelected = await createBackup(userData, join(root, "old-selected"));
+  const freshSelected = await createBackup(userData, join(root, "fresh-selected"));
+  const old = await createIntent({ userData, operation: "restore", payload: { selectedBackup: oldSelected } });
+  let current = await transitionIntent({ userData, expectedToken: old.token, expectedRevision: old.revision, nextState: "capturing" });
+  const capture = getCapturePaths(userData, old.token);
+  const oldCapture = await createBackup(userData, join(root, "old-capture"));
+  await mkdir(capture.backupRoot, { recursive: true });
+  await cp(oldCapture, capture.finalBackupPath, { recursive: true });
+  current = await transitionIntent({ userData, expectedToken: old.token, expectedRevision: current.revision, nextState: "captured", capturedBackupPath: capture.finalBackupPath });
+  current = (await prepareResumeIntent({ userData, expectedToken: current.token, expectedRevision: current.revision })).intent;
+  await writeFile(join(userData, "pending-restore.json"), JSON.stringify({ version: 1, status: "failed", selected: oldSelected, safetyBackup: current.capturedBackupPath, coldToken: old.token, recoveryRequired: false, error: { message: "The previous Restore failed and its rollback completed." } }));
+  return { old, freshSelected };
+}
+
+async function captureIntent(userData, intent) {
+  let current = await transitionIntent({ userData, expectedToken: intent.token, expectedRevision: intent.revision, nextState: "capturing" });
+  const capture = getCapturePaths(userData, intent.token);
+  const published = await createBackup(userData, join(userData, "test-capture-stage"));
+  await mkdir(capture.backupRoot, { recursive: true });
+  await cp(published, capture.finalBackupPath, { recursive: true });
+  current = await transitionIntent({ userData, expectedToken: intent.token, expectedRevision: current.revision, nextState: "captured", capturedBackupPath: capture.finalBackupPath });
+  return current;
 }
 
 test("missing and corrupt Backups are marked failed once and startup continues", async () => {
@@ -368,6 +398,57 @@ test("failed marker writes allow choosing fresh only when the recovery scan is c
   assert.equal(retainedResult.relaunch, undefined);
   assert.equal(retainedResult.quits, 1);
   assert.equal(retainedResult.dialogs[0].buttons.includes("Choose another Backup"), false);
+});
+
+test("a safe failed cold Restore survives replacement approval until fresh capture resumes once", async () => {
+  const h = await harness();
+  const userData = join(h.root, "user");
+  await mkdir(userData, { recursive: true });
+  const { old, freshSelected } = await seedSafeColdRestore(userData, h.root);
+  const markerPath = join(userData, "pending-restore.json");
+  const oldMarker = await readFile(markerPath, "utf8");
+
+  const first = await launch(h, userData, { R05_REAL_COORDINATOR: "1", R05_DIALOG_RESPONSES: "[1,0]", R05_NEW_SELECTION: freshSelected });
+  assert.equal(first.windows, 0);
+  assert.equal(first.relaunch, true);
+  assert.equal(await readFile(markerPath, "utf8"), oldMarker);
+  const requested = await readCurrentIntent({ userData });
+  assert.equal(requested.operation, "restore");
+  assert.equal(requested.state, "requested");
+  assert.notEqual(requested.token, old.token);
+  await assert.rejects(createIntent({ userData, operation: "restore", payload: { selectedBackup: freshSelected } }), /already pending/);
+
+  const captured = await captureIntent(userData, requested);
+  assert.equal(captured.state, "captured");
+  const second = await launch(h, userData, { R05_REAL_COORDINATOR: "1" });
+  assert.equal(second.windows, 1);
+  assert.deepEqual(await attempts(userData), [freshSelected]);
+  await assert.rejects(readFile(markerPath), { code: "ENOENT" });
+  assert.equal(await readCurrentIntent({ userData }), null);
+
+  const third = await launch(h, userData, { R05_REAL_COORDINATOR: "1" });
+  assert.equal(third.windows, 1);
+  assert.deepEqual(await attempts(userData), [freshSelected]);
+});
+
+test("cancelling safe failed cold Restore replacement preserves its marker and resuming token", async () => {
+  const h = await harness();
+  const userData = join(h.root, "user");
+  await mkdir(userData, { recursive: true });
+  const { old, freshSelected } = await seedSafeColdRestore(userData, h.root);
+  const markerPath = join(userData, "pending-restore.json");
+  const oldMarker = await readFile(markerPath, "utf8");
+
+  const result = await launch(h, userData, { R05_REAL_COORDINATOR: "1", R05_DIALOG_RESPONSES: "[1,1]", R05_NEW_SELECTION: freshSelected });
+  assert.equal(result.relaunch, undefined);
+  assert.equal(result.quits, 0);
+  assert.equal(result.windows, 1);
+  assert.equal(await readFile(markerPath, "utf8"), oldMarker);
+  assert.deepEqual(await attempts(userData), []);
+  const current = await readCurrentIntent({ userData });
+  assert.equal(current.token, old.token);
+  assert.equal(current.state, "resuming");
+  await assert.rejects(createIntent({ userData, operation: "restore", payload: { selectedBackup: freshSelected } }), /already pending/);
 });
 
 test("an unrecorded completed restore stays blocked and is never replayed", async () => {
