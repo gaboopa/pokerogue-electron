@@ -30,3 +30,9 @@ test("validated mappings use one-way IPC without exposing filesystem access", ()
   assert.match(preload, /ipcRenderer\.on\("keybindings:update"/);
   assert.doesNotMatch(preload, /readFile|writeFile|openPath/);
 });
+
+test("the game window bridge exposes only getCheatConfig", () => {
+  const body = preload.match(/exposeInMainWorld\("pokerogueDesktop", \{([\s\S]*?)\r?\n\}\);/)?.[1];
+  assert.ok(body, "bridge definition not found");
+  assert.deepEqual([...body.matchAll(/^  (\w+):/gm)].map(match => match[1]), ["getCheatConfig"]);
+});

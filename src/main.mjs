@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell } from "electron";
+import { app, BrowserWindow, dialog, Menu, protocol, session, shell } from "electron";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -607,14 +607,6 @@ function createMenu() {
   })));
 }
 
-function registerIpc() {
-  ipcMain.handle("app:get-version", () => app.getVersion());
-  ipcMain.handle("updates:check", performUpdateCheck);
-  ipcMain.handle("saves:backup", requestManualBackup);
-  ipcMain.handle("saves:restore", chooseAndRestore);
-  ipcMain.handle("saves:open-folder", async () => ({ error: await shell.openPath(paths().userData) }));
-}
-
 async function createWindow() {
   const window = new BrowserWindow({
     width: 1280, height: 800, minWidth: 800, minHeight: 600, backgroundColor: "#000000", show: false,
@@ -690,7 +682,6 @@ app.whenReady().then(async () => {
     relaunch: async () => { app.relaunch(); app.quit(); },
   });
   cheatController.registerIpc();
-  registerIpc();
   createMenu();
   await createWindow();
   startupReady = true;

@@ -105,6 +105,8 @@ async function launchPackage({ exe, root, userData, remotePort, firstInspectorPo
   }
 }
 
+const clickMenu = (current, label) => current.app.debuggerClient.evaluate(`globalThis.__r20ClickMenu("PokeRogue Offline", ${JSON.stringify(label)})`);
+
 async function runRequestedFlow(state, operation, trigger, completionTitle) {
   const sourcePid = state.app.pid;
   const previousBackups = await backupDirectories(state.userData);
@@ -189,7 +191,7 @@ async function nextRelaunchedApp(state) {
 async function runManualCapture(state, suffix) {
   await waitForGame(state.remotePort);
   await seedGame(state.remotePort, suffix);
-  const resumed = await runRequestedFlow(state, "manual", current => evalRenderer(current.remotePort, "window.pokerogueDesktop.backupSaves()"), "Save backup complete");
+  const resumed = await runRequestedFlow(state, "manual", current => clickMenu(current, "Back Up Saves…"), "Save backup complete");
   const profile = state.userData;
   const backupRoot = join(profile, "Save Backups");
   const candidates = (await readdir(backupRoot, { withFileTypes: true })).filter(entry => entry.isDirectory() && !entry.name.startsWith("."));
@@ -271,7 +273,7 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     state.config.restorePath = manual.backupPath;
     await state.app.debuggerClient.evaluate(`globalThis.__r20SetRestorePath(${JSON.stringify(manual.backupPath)})`);
     await seedGame(state.remotePort, "changed");
-    const restored = keep(await runRequestedFlow(state, "restore", current => evalRenderer(current.remotePort, "window.pokerogueDesktop.restoreSaves()"), null));
+    const restored = keep(await runRequestedFlow(state, "restore", current => clickMenu(current, "Restore Backup…"), null));
     const restoredState = await readGame(restored.remotePort);
     assert.deepEqual(restoredState, {
       local: { suffix: "manual", value: "local-manual" },
@@ -285,7 +287,7 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     const updateState = await launch("update");
     await waitForGame(updateState.remotePort);
     await seedGame(updateState.remotePort, "update");
-    const update = keep(await runRequestedFlow(updateState, "update", current => evalRenderer(current.remotePort, "window.pokerogueDesktop.checkForUpdates()"), "Update downloaded"));
+    const update = keep(await runRequestedFlow(updateState, "update", current => clickMenu(current, "Check for Updates…"), "Update downloaded"));
     const updateFiles = await readdir(join(update.userData, "Updates"));
     assert.equal(updateFiles.length, 1);
     assert.match(await readFile(join(update.userData, "Updates", updateFiles[0]), "utf8"), /^R20 inert, verified Update fixture/);
@@ -297,7 +299,7 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
       const failedUpdateState = await launch(scenario);
       await waitForGame(failedUpdateState.remotePort);
       await seedGame(failedUpdateState.remotePort, scenario);
-      const failedUpdate = keep(await runRequestedFlow(failedUpdateState, "update", current => evalRenderer(current.remotePort, "window.pokerogueDesktop.checkForUpdates()"), "Update backup did not complete"));
+      const failedUpdate = keep(await runRequestedFlow(failedUpdateState, "update", current => clickMenu(current, "Check for Updates…"), "Update backup did not complete"));
       assert.deepEqual(await readGame(failedUpdate.remotePort), {
         local: { suffix: scenario, value: `local-${scenario}` },
         indexed: { id: "save", suffix: scenario, value: `indexed-${scenario}` },
@@ -329,8 +331,8 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     const cancelledState = await launch("cancel", 1);
     await waitForGame(cancelledState.remotePort);
     await seedGame(cancelledState.remotePort, "cancel");
-    const cancelled = await evalRenderer(cancelledState.remotePort, "window.pokerogueDesktop.backupSaves()", true);
-    assert.equal(cancelled.cancelled, true);
+    await clickMenu(cancelledState, "Back Up Saves…");
+    await waitForEvent(root, event => event.pid === cancelledState.app.pid && event.event === "dialog-message" && event.title === "Restart to back up saves" && event.response === 1);
     assert.ok(getEvents(root).some(event => event.pid === cancelledState.app.pid && event.event === "dialog-message" && event.title === "Restart to back up saves" && event.response === 1), "cancellation must come from the actual Restart/Cancel dialog");
     assert.equal((await backupDirectories(cancelledState.userData)).length, 0);
     assert.deepEqual(await readGame(cancelledState.remotePort), {
@@ -344,7 +346,7 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     await waitForGame(vetoState.remotePort);
     await seedGame(vetoState.remotePort, "veto");
     const vetoPid = vetoState.app.pid;
-    await evalRenderer(vetoState.remotePort, "window.pokerogueDesktop.backupSaves()");
+    await clickMenu(vetoState, "Back Up Saves…");
     await waitForEvent(root, event => event.pid === vetoPid && event.event === "dialog-message" && event.title === "Backup not completed");
     const vetoIntent = JSON.parse(await readFile(join(vetoState.userData, "backup-intent.json"), "utf8"));
     assert.equal(vetoIntent.state, "failed");
@@ -366,7 +368,7 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     await waitForGame(workerFailureState.remotePort);
     await seedGame(workerFailureState.remotePort, "worker-failure");
     const failedSourcePid = workerFailureState.app.pid;
-    await evalRenderer(workerFailureState.remotePort, "window.pokerogueDesktop.backupSaves()");
+    await clickMenu(workerFailureState, "Back Up Saves…");
     workerFailureState.app.debuggerClient.close();
     await waitForPidExit(failedSourcePid);
     appendFileSync(join(root, "events.jsonl"), `${JSON.stringify({ at: new Date().toISOString(), event: "source-exit-observed", pid: failedSourcePid })}\n`);
@@ -391,7 +393,7 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     await waitForGame(interruptedState.remotePort);
     await seedGame(interruptedState.remotePort, "interrupted");
     const interruptedSourcePid = interruptedState.app.pid;
-    await evalRenderer(interruptedState.remotePort, "window.pokerogueDesktop.backupSaves()");
+    await clickMenu(interruptedState, "Back Up Saves…");
     interruptedState.app.debuggerClient.close();
     await waitForPidExit(interruptedSourcePid);
     appendFileSync(join(root, "events.jsonl"), `${JSON.stringify({ at: new Date().toISOString(), event: "source-exit-observed", pid: interruptedSourcePid })}\n`);

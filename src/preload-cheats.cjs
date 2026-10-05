@@ -94,10 +94,5 @@ window.addEventListener("DOMContentLoaded", () => {
 });
 
 contextBridge.exposeInMainWorld("pokerogueDesktop", {
-  getVersion: () => ipcRenderer.invoke("app:get-version"),
   getCheatConfig: () => ipcRenderer.invoke("cheats:get-config"),
-  checkForUpdates: () => ipcRenderer.invoke("updates:check"),
-  backupSaves: () => ipcRenderer.invoke("saves:backup"),
-  restoreSaves: () => ipcRenderer.invoke("saves:restore"),
-  openSaveFolder: () => ipcRenderer.invoke("saves:open-folder"),
 });

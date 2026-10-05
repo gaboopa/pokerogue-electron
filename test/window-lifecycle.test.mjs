@@ -161,7 +161,7 @@ async function createHarness() {
       state.guardSnapshot = { gameDestroyed: game.destroyed, chartHides: chart.hides, flushes: state.flushes, backups: state.backups, dialogParents: state.dialogParents, dialogs: state.dialogs.length, opened: state.opened.length, destroyedParentUsed: state.dialogParents.includes("destroyed") };
     } else if (process.env.R06_SCENARIO === "cold-cancel") {
       await click("Back Up Saves…");
-      await state.handlers["saves:backup"]();
+      await click("Back Up Saves…");
       state.coldSnapshot = { flushes: state.flushes, backups: state.backups, relaunches: state.relaunches, created: state.coordinator.created.length, dialogs: state.dialogs, parents: state.dialogParents };
     } else if (process.env.R06_SCENARIO === "cold-request") {
       await click("Back Up Saves…");
@@ -191,7 +191,7 @@ async function createHarness() {
       await new Promise(resolve => setTimeout(resolve, 1900));
       state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
       await new Promise(resolve => setTimeout(resolve, 20));
-      await state.handlers["saves:backup"]();
+      await click("Back Up Saves…");
       state.coldSnapshot = { flushes: state.flushes, backups: state.backups, relaunches: state.relaunches, created: state.coordinator.created.length, current: state.coordinator.getCurrent(), transitions: state.coordinator.transitions, clearCalls: state.coordinator.clearCalls, dialogs: state.dialogs, games: games().length };
     } else if (process.env.R06_SCENARIO === "update-request") {
       await click("Check for Updates…");
@@ -295,7 +295,7 @@ test("menu and auxiliary-window actions tolerate an absent or destroyed game win
   assert.equal(state.guardSnapshot.opened, 1);
 });
 
-test("manual Backup Cancel through menu and IPC leaves the profile live without capture or relaunch", async () => {
+test("manual Backup Cancel through the menu twice leaves the profile live without capture or relaunch", async () => {
   const state = await launch("cold-cancel");
   assert.equal(state.coldSnapshot.flushes, 0);
   assert.equal(state.coldSnapshot.backups, 0);

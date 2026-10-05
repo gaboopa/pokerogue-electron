@@ -133,6 +133,7 @@ The NSIS uninstaller preserves application data. Native backups include Chromium
 - Node integration remains disabled.
 - Renderer HTTP, HTTPS, WebSocket, popups, external navigation, and permission requests remain blocked.
 - No arbitrary filesystem, process, shell, command, or network bridge is exposed to game code.
+- The game window's bridge exposes only read-only cheat configuration; Update, Backup and Restore are reachable only from the application menu.
 - Only explicitly initiated update checks may use the network.
 - Update URLs remain HTTPS-only and restricted to approved GitHub hosts.
 - Every redirect, release manifest, artifact platform, architecture, size, and checksum is validated.
