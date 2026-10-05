@@ -400,13 +400,15 @@ export async function readIntent(input) {
 export async function readCurrentIntent(input) {
   exactKeys(input, ["userData"], "Read current Backup intent input");
   const paths = pathsFor(input.userData);
-  let info;
-  try { info = await lstat(paths.journalPath); }
-  catch (error) { if (error.code === "ENOENT") return null; throw error; }
-  if (!info.isFile() || info.isSymbolicLink()) fail("Backup intent journal must be a regular app-owned file");
-  const intent = JSON.parse(await readFile(paths.journalPath, "utf8"));
-  validateIntent(intent, paths);
-  return intent;
+  return withIntentLock(paths, async () => {
+    let info;
+    try { info = await lstat(paths.journalPath); }
+    catch (error) { if (error.code === "ENOENT") return null; throw error; }
+    if (!info.isFile() || info.isSymbolicLink()) fail("Backup intent journal must be a regular app-owned file");
+    const intent = JSON.parse(await readFile(paths.journalPath, "utf8"));
+    validateIntent(intent, paths);
+    return intent;
+  });
 }
 
 export async function transitionIntent(input) {
@@ -511,7 +513,12 @@ export async function revalidateResumingUpdate(input) {
   if (!isDirectChild(paths.updateRoot, installerPath)) fail("Update installer path is not an app-owned basename");
   await assertRealDirectory(paths.updateRoot, "App-owned Update root");
   await validateInstaller(installerPath, artifact);
-  return { artifact, installerPath };
+  return withIntentLock(paths, async () => {
+    const latest = await readIntentFile(paths, input.expectedToken);
+    assertRevision(latest, input.expectedRevision);
+    if (latest.operation !== "update" || latest.state !== "resuming") fail("Update intent changed while validating its installer; stale open rejected");
+    return { artifact, installerPath };
+  });
 }
 
 export async function clearTerminalIntent(input) {

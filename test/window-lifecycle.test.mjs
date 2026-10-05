@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -20,11 +20,15 @@ async function createHarness() {
   const bootstrap = join(root, "bootstrap.mjs");
   const electron = join(root, "electron.mjs");
   const backup = join(root, "backup.mjs");
+  const coordinator = join(root, "coordinator.mjs");
+  const updater = join(root, "updater.mjs");
   const keymap = join(root, "keymap.mjs");
   const runner = join(root, "runner.mjs");
   await writeFile(loader, `export async function resolve(specifier, context, nextResolve) {
     if (specifier === "electron") return { url: new URL("./electron.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./backup.mjs") return { url: new URL("./backup.mjs", import.meta.url).href, shortCircuit: true };
+    if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./backup-coordinator.mjs") return { url: new URL("./coordinator.mjs", import.meta.url).href, shortCircuit: true };
+    if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./updater.mjs") return { url: new URL("./updater.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./keymap-store.mjs") return { url: new URL("./keymap.mjs", import.meta.url).href, shortCircuit: true };
     return nextResolve(specifier, context);
   }`);
@@ -33,9 +37,10 @@ async function createHarness() {
     let rejectStartup;
     let stateResolveKeymapStarted;
     let stateReleaseKeymap;
-    const state = { listeners: {}, instances: [], menu: [], dialogs: [], dialogParents: [], opened: [], flushes: 0, backups: 0, quits: 0, relaunches: 0, unhandled: [], startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), keymapStarted: new Promise(resolve => { stateResolveKeymapStarted = resolve; }), keymapGate: new Promise(resolve => { stateReleaseKeymap = resolve; }) };
+    const state = { listeners: {}, onceListeners: {}, instances: [], menu: [], dialogs: [], dialogParents: [], opened: [], flushes: 0, backups: 0, quits: 0, relaunches: 0, relaunchArgs: null, unhandled: [], dialogResponses: JSON.parse(process.env.R06_DIALOG_RESPONSES || "[]"), startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), keymapStarted: new Promise(resolve => { stateResolveKeymapStarted = resolve; }), keymapGate: new Promise(resolve => { stateReleaseKeymap = resolve; }) };
     state.releaseKeymap = () => stateReleaseKeymap();
     state.signalKeymapStarted = () => stateResolveKeymapStarted();
+    state.fireApp = (name, event = {}) => { const once = state.onceListeners[name] ?? []; delete state.onceListeners[name]; for (const callback of once) callback(event); const listener = state.listeners[name]; if (typeof listener === "function") listener(event); };
     process.on("unhandledRejection", error => state.unhandled.push(error.message));
     globalThis.__r06 = state;
     function makeEventMap() { return new Map(); }
@@ -67,12 +72,12 @@ async function createHarness() {
       async loadFile(path) { this.file = path; }
     }
     export const app = {
-      isPackaged: false, setName() {}, getPath(name) { return name === "userData" ? process.env.R06_USER_DATA : process.env.TEMP; }, getVersion() { return "test"; },
+      isPackaged: false, setName() {}, getAppPath() { return process.env.R06_APP_PATH; }, getPath(name) { return name === "userData" ? process.env.R06_USER_DATA : process.env.TEMP; }, getVersion() { return "test"; },
       whenReady() { return { then(callback) { Promise.resolve().then(callback).then(resolveStartup, rejectStartup); return state.startupPromise; } }; },
-      on(name, callback) { state.listeners[name] = callback; }, relaunch() { state.relaunches++; }, quit() { state.quits++; },
+      on(name, callback) { state.listeners[name] = callback; }, once(name, callback) { (state.onceListeners[name] ??= []).push(callback); }, removeListener(name, callback) { state.onceListeners[name] = (state.onceListeners[name] ?? []).filter(item => item !== callback); }, relaunch(options) { state.relaunches++; state.relaunchArgs = options?.args ?? []; }, quit() { state.quits++; },
     };
     export const dialog = {
-      async showMessageBox(...args) { const options = args.at(-1); state.dialogs.push({ title: options.title, message: options.message, buttons: options.buttons }); state.dialogParents.push(args.length > 1 ? args[0]?.role ?? "destroyed" : undefined); return { response: options.cancelId ?? options.defaultId ?? 0 }; },
+      async showMessageBox(...args) { const options = args.at(-1); state.dialogs.push({ title: options.title, message: options.message, buttons: options.buttons }); state.dialogParents.push(args.length > 1 ? args[0]?.role ?? "destroyed" : undefined); return { response: state.dialogResponses.shift() ?? options.cancelId ?? options.defaultId ?? 0 }; },
       async showOpenDialog(...args) { state.dialogParents.push(args.length > 1 ? args[0]?.role ?? "destroyed" : undefined); return { canceled: true, filePaths: [] }; },
       showErrorBox(title, message) { state.dialogs.push({ title, message }); },
     };
@@ -85,6 +90,19 @@ async function createHarness() {
     export async function validateBackup() {}
     export async function createBackup() { globalThis.__r06.backups++; return process.env.R06_USER_DATA + "/Save Backups/test.zip"; }
     export async function restoreBackup() {}`);
+  await writeFile(coordinator, `let current = process.env.R06_INITIAL_INTENT === "update-captured" ? { token: "${"b".repeat(64)}", operation: "update", state: "captured", revision: 3, capturedBackupPath: "profile/backup", payload: {} } : process.env.R06_INITIAL_INTENT === "update-resuming" ? { token: "${"c".repeat(64)}", operation: "update", state: "resuming", revision: 4, capturedBackupPath: "profile/backup", payload: {} } : null;
+    export const state = globalThis.__r06.coordinator = { created: [], transitions: [], prepared: 0, revalidated: 0, getCurrent: () => current };
+    export async function recoverStaleIntentLock() { return false; }
+    export async function readCurrentIntent() { return current; }
+    export async function createIntent(input) { const intent = { token: "${"a".repeat(64)}", operation: input.operation, state: "requested", revision: 0, payload: input.payload, capturedBackupPath: null, failure: null }; current = intent; state.created.push(intent); return intent; }
+    export async function transitionIntent(input) { const next = { ...current, state: input.nextState, revision: current.revision + 1, failure: input.failure ?? null }; current = next; state.transitions.push(next); return next; }
+    export async function prepareResumeIntent(input) { state.prepared++; current = { ...current, state: "resuming", revision: current.revision + 1 }; return { intent: current, continuation: { backupPath: "profile/backup", installerPath: process.env.R06_USER_DATA + "/Updates/setup.exe" } }; }
+    export async function revalidateResumingUpdate(input) { state.revalidated++; if (process.env.R06_TAMPER === "1") throw new Error("installer hash changed"); return { installerPath: process.env.R06_USER_DATA + "/Updates/setup.exe" }; }
+    export async function clearTerminalIntent() { current = null; return true; }`);
+  await writeFile(updater, `const artifact = { platform: "windows", arch: "x64", fileName: "setup.exe", size: 1, sha256: "${"a".repeat(64)}", downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v1/setup.exe" };
+    const manifest = { schemaVersion: 1, version: "1.2.3", sourceRevisions: { game: "g", assets: "a", locales: "l" }, artifacts: [artifact] };
+    export async function checkForUpdate() { return { available: true, artifact, manifest }; }
+    export async function downloadVerified() { globalThis.__r06.downloads = (globalThis.__r06.downloads ?? 0) + 1; return process.env.R06_USER_DATA + "/Updates/setup.exe"; }`);
   await writeFile(keymap, `let calls = 0; let mtimeReads = 0;
     export async function loadKeymap() { calls++; if (calls === 2 && process.env.R06_DELAY_KEYMAP) { globalThis.__r06.signalKeymapStarted(); await globalThis.__r06.keymapGate; } return []; }
     export async function keymapModifiedAt() { return ++mtimeReads === 1 ? 1 : 2; }
@@ -135,6 +153,30 @@ async function createHarness() {
       await click("Restore Backup…");
       await click("Open Save Folder");
       state.guardSnapshot = { gameDestroyed: game.destroyed, chartHides: chart.hides, flushes: state.flushes, backups: state.backups, dialogParents: state.dialogParents, dialogs: state.dialogs.length, opened: state.opened.length, destroyedParentUsed: state.dialogParents.includes("destroyed") };
+    } else if (process.env.R06_SCENARIO === "cold-cancel") {
+      await click("Back Up Saves…");
+      await state.handlers["saves:backup"]();
+      state.coldSnapshot = { flushes: state.flushes, backups: state.backups, relaunches: state.relaunches, created: state.coordinator.created.length, dialogs: state.dialogs, parents: state.dialogParents };
+    } else if (process.env.R06_SCENARIO === "cold-request") {
+      await click("Back Up Saves…");
+      state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
+      await new Promise(resolve => setImmediate(resolve));
+      state.coldSnapshot = { flushes: state.flushes, backups: state.backups, relaunches: state.relaunches, args: state.relaunchArgs, created: state.coordinator.created, dialogs: state.dialogs };
+    } else if (process.env.R06_SCENARIO === "cold-veto") {
+      await click("Back Up Saves…");
+      await new Promise(resolve => setTimeout(resolve, 1900));
+      state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      state.coldSnapshot = { flushes: state.flushes, backups: state.backups, relaunches: state.relaunches, current: state.coordinator.getCurrent(), transitions: state.coordinator.transitions, dialogs: state.dialogs, games: games().length };
+    } else if (process.env.R06_SCENARIO === "update-request") {
+      await click("Check for Updates…");
+      state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
+      await new Promise(resolve => setImmediate(resolve));
+      state.coldSnapshot = { flushes: state.flushes, downloads: state.downloads, relaunches: state.relaunches, args: state.relaunchArgs, created: state.coordinator.created, dialogs: state.dialogs };
+    } else if (["update-later", "update-open", "update-tampered"].includes(process.env.R06_SCENARIO)) {
+      state.coldSnapshot = { opened: state.opened, revalidated: state.coordinator.revalidated, dialogs: state.dialogs, games: games().length, transitions: state.coordinator.transitions };
+    } else if (process.env.R06_SCENARIO === "update-interrupted") {
+      state.coldSnapshot = { current: state.coordinator.getCurrent(), transitions: state.coordinator.transitions, dialogs: state.dialogs, games: games().length };
     } else if (process.env.R06_SCENARIO === "keyboard") {
       let prevented = false;
       game.webContents.emit("before-input-event", { preventDefault() { prevented = true; } }, { type: "keyDown", key: "F5" });
@@ -171,13 +213,14 @@ async function createHarness() {
       state.listeners["window-all-closed"]();
     }
     const snapshot = {
-      platform: process.platform, quits: state.quits, relaunches: state.relaunches, initialGame: { reloads: game.reloads, shows: game.shows, destroyed: game.destroyed },
+      pid: process.pid, platform: process.platform, quits: state.quits, relaunches: state.relaunches, initialGame: { reloads: game.reloads, shows: game.shows, destroyed: game.destroyed },
       games: games().length, instances: state.instances.map(window => ({ role: window.role, destroyed: window.destroyed, reloads: window.reloads, shows: window.shows, hides: window.hides })),
       urls: state.urls ?? [], dialogs: state.dialogs, dialogParents: state.dialogParents, opened: state.opened, flushes: state.flushes, backups: state.backups,
       afterRepeatedActivation: state.afterRepeatedActivation, afterStaleCallbacks: state.afterStaleCallbacks, staleSnapshot: state.staleSnapshot,
       auxiliaryAlive: state.auxiliaryAlive, replacementShown: state.replacementShown, keyboardPrevented: state.keyboardPrevented,
       afterF5Reloads: state.afterF5Reloads, keyboardModifiedPrevented: state.keyboardModifiedPrevented, guardSnapshot: state.guardSnapshot,
       keymapRace: state.keymapRace, loadRecovery: state.loadRecovery,
+      coldSnapshot: state.coldSnapshot,
     };
     await (await import("node:fs/promises")).writeFile(process.env.R06_RESULT, JSON.stringify(snapshot));`);
   return { root, bootstrap, runner };
@@ -189,7 +232,7 @@ async function launch(scenario) {
   const resultPath = join(h.root, "result.json");
   const result = spawnSync(process.execPath, ["--import", pathToFileURL(h.bootstrap).href, h.runner], {
     encoding: "utf8", timeout: 10000,
-    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "" },
+    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: ["cold-request", "cold-veto", "update-request", "update-open", "update-tampered"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "update-interrupted" ? "update-resuming" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "" },
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   return JSON.parse(await readFile(resultPath, "utf8"));
@@ -211,11 +254,98 @@ test("menu and auxiliary-window actions tolerate an absent or destroyed game win
   assert.equal(state.guardSnapshot.gameDestroyed, true);
   assert.equal(state.guardSnapshot.chartHides, 1);
   assert.equal(state.guardSnapshot.flushes, 0);
-  assert.equal(state.guardSnapshot.backups, 1);
+  assert.equal(state.guardSnapshot.backups, 0);
   assert.equal(state.guardSnapshot.destroyedParentUsed, false);
   assert.deepEqual(state.guardSnapshot.dialogParents, [null, null]);
   assert.equal(state.guardSnapshot.dialogs, 1);
   assert.equal(state.guardSnapshot.opened, 1);
+});
+
+test("manual Backup Cancel through menu and IPC leaves the profile live without capture or relaunch", async () => {
+  const state = await launch("cold-cancel");
+  assert.equal(state.coldSnapshot.flushes, 0);
+  assert.equal(state.coldSnapshot.backups, 0);
+  assert.equal(state.coldSnapshot.relaunches, 0);
+  assert.equal(state.coldSnapshot.created, 0);
+  assert.equal(state.coldSnapshot.dialogs.length, 2);
+  assert.ok(state.coldSnapshot.dialogs.every(dialog => dialog.buttons?.[1] === "Cancel"));
+  assert.deepEqual(state.coldSnapshot.parents, ["game", "game"]);
+});
+
+test("accepted manual Backup flushes storage and launches the real bootstrap worker argument shape", async () => {
+  const state = await launch("cold-request");
+  assert.equal(state.coldSnapshot.flushes, 1);
+  assert.equal(state.coldSnapshot.backups, 0);
+  assert.equal(state.coldSnapshot.relaunches, 1);
+  assert.deepEqual(state.coldSnapshot.args, [repo, "--", "--backup-worker", `--backup-token=${"a".repeat(64)}`, `--backup-parent-pid=${state.pid}`]);
+  assert.equal(state.coldSnapshot.created[0].operation, "manual");
+
+  const root = await mkdtemp(join(tmpdir(), "pokerogue-bootstrap-argv-"));
+  roots.push(root);
+  await mkdir(join(root, "profile"));
+  const loader = join(root, "loader.mjs");
+  const registerLoader = join(root, "register-loader.mjs");
+  const electron = join(root, "electron.mjs");
+  await writeFile(loader, `export async function resolve(specifier, context, nextResolve) { if (specifier === "electron") return { url: new URL("./electron.mjs", import.meta.url).href, shortCircuit: true }; return nextResolve(specifier, context); }`);
+  await writeFile(registerLoader, `import { register } from "node:module"; register(${JSON.stringify(pathToFileURL(loader).href)});`);
+  await writeFile(electron, `export const app = { isPackaged: false, setName() {}, getAppPath() { return process.env.R06_APP_PATH; }, getPath() { return process.env.R06_USER_DATA; }, setPath() {}, requestSingleInstanceLock() { return true; }, exit(code) { process.exitCode = code; }, relaunch() {}, quit() {} }; export const dialog = { showErrorBox(title, message) { process.stderr.write(JSON.stringify({ code: "dialog", title, message }) + "\\n"); } };`);
+  const bootstrap = pathToFileURL(join(repo, "src", "bootstrap.mjs")).href;
+  const result = spawnSync(process.execPath, ["--import", pathToFileURL(registerLoader).href, "-e", `import(${JSON.stringify(bootstrap)})`, ...state.coldSnapshot.args], {
+    encoding: "utf8", timeout: 10000,
+    env: { ...process.env, R06_APP_PATH: repo, R06_USER_DATA: join(root, "profile") },
+  });
+  assert.notEqual(result.status, 0);
+  const workerFailure = result.stderr.split(/\r?\n/).filter(Boolean).map(line => { try { return JSON.parse(line); } catch { return null; } }).find(record => record?.code === "worker-failed");
+  assert.ok(workerFailure, `${result.stdout}\n${result.stderr}`);
+  assert.match(workerFailure.error, /backup-intent|journal/i);
+});
+
+test("a shutdown veto or window close cancellation cannot leave a queued worker for a later quit", async () => {
+  const state = await launch("cold-veto");
+  assert.equal(state.coldSnapshot.flushes, 1);
+  assert.equal(state.coldSnapshot.backups, 0);
+  assert.equal(state.coldSnapshot.relaunches, 0);
+  assert.equal(state.coldSnapshot.current, null);
+  assert.ok(state.coldSnapshot.transitions.some(intent => intent.state === "failed" && intent.failure.code === "quit-vetoed"));
+  assert.ok(state.coldSnapshot.dialogs.some(dialog => dialog.title === "Backup not completed"));
+  assert.equal(state.coldSnapshot.games, 1);
+});
+
+test("Update requires the cold Backup restart before download continuation and preserves Later", async () => {
+  const request = await launch("update-request");
+  assert.equal(request.coldSnapshot.downloads, 1);
+  assert.equal(request.coldSnapshot.flushes, 1);
+  assert.deepEqual(request.coldSnapshot.args.slice(0, 3), [repo, "--", "--backup-worker"]);
+  assert.equal(request.coldSnapshot.created[0].operation, "update");
+  assert.deepEqual(request.coldSnapshot.dialogs[0].buttons, ["Download and Restart", "Cancel"]);
+
+  const later = await launch("update-later");
+  assert.deepEqual(later.coldSnapshot.opened, []);
+  assert.equal(later.coldSnapshot.revalidated, 0);
+  assert.equal(later.coldSnapshot.games, 1);
+});
+
+test("Update Open revalidates immediately, while installer tampering fails visibly without opening", async () => {
+  const open = await launch("update-open");
+  assert.equal(open.coldSnapshot.revalidated, 1);
+  assert.equal(open.coldSnapshot.opened.length, 1);
+  assert.match(open.coldSnapshot.opened[0], /[\\/]Updates[\\/]setup\.exe$/);
+  assert.match(open.coldSnapshot.dialogs[0].title, /Update downloaded/);
+
+  const tampered = await launch("update-tampered");
+  assert.equal(tampered.coldSnapshot.revalidated, 1);
+  assert.deepEqual(tampered.coldSnapshot.opened, []);
+  assert.ok(tampered.coldSnapshot.dialogs.some(dialog => dialog.title === "Update backup did not complete"));
+  assert.equal(tampered.coldSnapshot.games, 1);
+});
+
+test("interrupted Update intent is marked failed once, reported, and does not strand game startup", async () => {
+  const state = await launch("update-interrupted");
+  assert.equal(state.coldSnapshot.current, null);
+  assert.ok(state.coldSnapshot.transitions.some(intent => intent.state === "interrupted"));
+  assert.ok(state.coldSnapshot.transitions.some(intent => intent.state === "failed"));
+  assert.ok(state.coldSnapshot.dialogs.some(dialog => dialog.title === "Update backup did not complete"));
+  assert.equal(state.coldSnapshot.games, 1);
 });
 
 test("F5 reload remains available while modified shortcuts are left to the system", async () => {

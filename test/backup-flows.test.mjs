@@ -78,7 +78,7 @@ test("cancelled manual choice creates no intent and repeated requests hit the sh
   });
 });
 
-test("Update opens only a revalidated app-owned installer and Later can complete without opening it", async () => {
+test("Update continuation resolves only to the revalidated app-owned installer", async () => {
   await withProfile(async ({ userData }) => {
     const bytes = "verified installer bytes";
     const payload = updatePayload(bytes);
@@ -90,8 +90,6 @@ test("Update opens only a revalidated app-owned installer and Later can complete
     const resumed = await prepareResumeIntent({ userData, expectedToken: captured.token, expectedRevision: captured.revision });
     const verified = await revalidateResumingUpdate({ userData, expectedToken: captured.token, expectedRevision: resumed.intent.revision });
     assert.equal(verified.installerPath, join(updateRoot, "setup.exe"));
-    const later = { response: 1 };
-    assert.equal(later.response, 1);
     const completed = await transitionIntent({ userData, expectedToken: captured.token, expectedRevision: resumed.intent.revision, nextState: "completed" });
     await clearTerminalIntent({ userData, expectedToken: completed.token, startupConfirmed: true });
   });
