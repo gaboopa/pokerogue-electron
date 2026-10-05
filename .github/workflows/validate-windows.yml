@@ -2,6 +2,9 @@ name: Validate Windows update without publishing
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/offline-review-updates
 
 permissions:
   contents: read
