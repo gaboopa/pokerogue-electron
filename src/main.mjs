@@ -114,13 +114,13 @@ function workerArgs(token) {
   return args;
 }
 
-async function failColdIntent(intent, message, code = "continuation-failed") {
+async function failColdIntent(intent, message, code = "continuation-failed", { startupConfirmed = false } = {}) {
   let latest = await readCurrentIntent({ userData: paths().userData });
   if (!latest || latest.token !== intent.token) throw new Error("The Backup request changed before its failure could be recorded");
   if (latest.state === "completed") {
-    await clearTerminalIntent({ userData: paths().userData, expectedToken: latest.token, startupConfirmed: true });
+    if (startupConfirmed) await clearTerminalIntent({ userData: paths().userData, expectedToken: latest.token, startupConfirmed: true });
     await showMessageBox({ type: "info", title: latest.operation === "update" ? "Update backup complete" : "Save backup complete", message: latest.operation === "update" ? "The required cold Backup completed." : "Your saves were backed up.", detail: latest.capturedBackupPath ?? "" });
-    backupRequestActive = false;
+    if (startupConfirmed) backupRequestActive = false;
     return;
   }
   if (["capturing", "resuming"].includes(latest.state)) {
@@ -130,9 +130,16 @@ async function failColdIntent(intent, message, code = "continuation-failed") {
     latest = await transitionIntent({ userData: paths().userData, expectedToken: latest.token, expectedRevision: latest.revision, nextState: "failed", failure: { code, message: String(message).slice(0, 1024) } });
   }
   if (latest.state !== "failed") throw new Error(`Could not record Backup failure from state ${latest.state}`);
-  await clearTerminalIntent({ userData: paths().userData, expectedToken: latest.token, startupConfirmed: true });
-  await showMessageBox({ type: "warning", title: latest.operation === "update" ? "Update backup did not complete" : "Backup not completed", message: latest.operation === "update" ? "The Update was downloaded, but its required cold Backup did not complete." : "The requested Backup did not complete.", detail: String(message) });
-  backupRequestActive = false;
+  if (startupConfirmed) await clearTerminalIntent({ userData: paths().userData, expectedToken: latest.token, startupConfirmed: true });
+  await showMessageBox({ type: "warning", title: latest.operation === "update" ? "Update backup did not complete" : "Backup not completed", message: latest.operation === "update" ? "The Update was downloaded, but its required cold Backup did not complete." : "The requested Backup did not complete.", detail: `${String(message)}${startupConfirmed ? "" : " Restart the application before requesting another Backup."}` });
+  if (startupConfirmed) backupRequestActive = false;
+}
+
+function reportColdIntentFailure(error) {
+  backupRequestActive = true;
+  startupRestarting = false;
+  try { dialog.showErrorBox("Backup request needs attention", `The request status could not be safely recorded. No new Backup will start until the application is restarted.\n\n${error.message}`); }
+  catch (reportError) { process.stderr.write(`Could not report Backup request failure: ${reportError.message}\n`); }
 }
 
 async function requestColdBackup(operation, payload, reserved = false) {
@@ -154,14 +161,14 @@ async function requestColdBackup(operation, payload, reserved = false) {
         if (quitReached) return;
         app.removeListener("will-quit", willQuitHandler);
         startupRestarting = false;
-        void failColdIntent(intent, "Application shutdown was cancelled; no live Backup was attempted.", "quit-vetoed");
+        void failColdIntent(intent, "Application shutdown was cancelled; no live Backup was attempted.", "quit-vetoed").catch(reportColdIntentFailure);
       }, 1800);
       willQuitHandler = event => {
         queueMicrotask(() => {
           if (event.defaultPrevented) {
             clearTimeout(quitTimer);
             startupRestarting = false;
-            void failColdIntent(intent, "Application shutdown was cancelled; no live Backup was attempted.", "quit-vetoed");
+            void failColdIntent(intent, "Application shutdown was cancelled; no live Backup was attempted.", "quit-vetoed").catch(reportColdIntentFailure);
             return;
           }
           quitReached = true;
@@ -170,7 +177,7 @@ async function requestColdBackup(operation, payload, reserved = false) {
           catch (error) {
             event.preventDefault();
             startupRestarting = false;
-            void failColdIntent(intent, error.message, "restart-failed");
+            void failColdIntent(intent, error.message, "restart-failed").catch(reportColdIntentFailure);
           }
         });
       };
@@ -179,7 +186,10 @@ async function requestColdBackup(operation, payload, reserved = false) {
       return { requested: true };
     } catch (error) {
       startupRestarting = false;
-      if (intent) await failColdIntent(intent, error.message, "restart-failed").catch(failure => showMessageBox({ type: "warning", title: "Backup request needs attention", message: "The request status could not be confirmed.", detail: failure.message }));
+      if (intent) {
+        await failColdIntent(intent, error.message, "restart-failed").catch(failure => showMessageBox({ type: "warning", title: "Backup request needs attention", message: "The request status could not be confirmed.", detail: failure.message }));
+        return { requested: false, journalPending: true, error: error.message };
+      }
       else {
         backupRequestActive = false;
         await showMessageBox({ type: "warning", title: operation === "update" ? "Update backup could not start" : "Backup could not start", message: "A cold Backup request could not be created.", detail: error.message });
@@ -246,7 +256,7 @@ async function resumeColdBackupIntent() {
     await transitionIntent({ userData, expectedToken: current.token, expectedRevision: resumed.intent.revision, nextState: "completed" });
     await clearTerminalIntent({ userData, expectedToken: current.token, startupConfirmed: true });
   } catch (error) {
-    try { await failColdIntent(current, error.message); }
+    try { await failColdIntent(current, error.message, "continuation-failed", { startupConfirmed: true }); }
     catch (recordError) {
       startupRecoveryBlocked = true;
       throw new Error(`${error.message}; could not safely record the request failure: ${recordError.message}`, { cause: error });
@@ -492,7 +502,7 @@ async function performUpdateCheck() {
     if (answer.response !== 0) return { available: true, downloaded: false };
     await downloadVerified(result.artifact, paths().downloadRoot);
     const requested = await requestColdBackup("update", { manifest: result.manifest, platform, arch: process.arch }, true);
-    keepReservation = requested.requested;
+    keepReservation = requested.requested || requested.journalPending;
     return { available: true, downloaded: true };
   } catch (error) {
     await showMessageBox({ type: "warning", title: "Update check unavailable", message: "Could not check for updates. Offline gameplay is unaffected.", detail: error.message });

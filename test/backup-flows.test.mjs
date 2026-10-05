@@ -67,10 +67,8 @@ test("manual capture resumes once with normalized save data retained and acknowl
   });
 });
 
-test("cancelled manual choice creates no intent and repeated requests hit the shared pending guard", async () => {
+test("a pending manual intent keeps a repeated coordinator request busy until startup acknowledgement", async () => {
   await withProfile(async ({ userData }) => {
-    const cancelled = { response: 1 };
-    assert.equal(cancelled.response, 1);
     assert.equal(await readCurrentIntent({ userData }), null);
     const first = await createIntent({ userData, operation: "manual", payload: {} });
     await assert.rejects(createIntent({ userData, operation: "manual", payload: {} }), /pending|busy|active/i);

@@ -91,14 +91,14 @@ async function createHarness() {
     export async function createBackup() { globalThis.__r06.backups++; return process.env.R06_USER_DATA + "/Save Backups/test.zip"; }
     export async function restoreBackup() {}`);
   await writeFile(coordinator, `let current = process.env.R06_INITIAL_INTENT === "update-captured" ? { token: "${"b".repeat(64)}", operation: "update", state: "captured", revision: 3, capturedBackupPath: "profile/backup", payload: {} } : process.env.R06_INITIAL_INTENT === "update-resuming" ? { token: "${"c".repeat(64)}", operation: "update", state: "resuming", revision: 4, capturedBackupPath: "profile/backup", payload: {} } : null;
-    export const state = globalThis.__r06.coordinator = { created: [], transitions: [], prepared: 0, revalidated: 0, getCurrent: () => current };
+    export const state = globalThis.__r06.coordinator = { created: [], transitions: [], clearCalls: 0, failNextTransition: false, prepared: 0, revalidated: 0, getCurrent: () => current };
     export async function recoverStaleIntentLock() { return false; }
     export async function readCurrentIntent() { return current; }
     export async function createIntent(input) { const intent = { token: "${"a".repeat(64)}", operation: input.operation, state: "requested", revision: 0, payload: input.payload, capturedBackupPath: null, failure: null }; current = intent; state.created.push(intent); return intent; }
-    export async function transitionIntent(input) { const next = { ...current, state: input.nextState, revision: current.revision + 1, failure: input.failure ?? null }; current = next; state.transitions.push(next); return next; }
+    export async function transitionIntent(input) { if (state.failNextTransition && input.nextState === "failed") { state.failNextTransition = false; throw new Error("injected failure write"); } const next = { ...current, state: input.nextState, revision: current.revision + 1, failure: input.failure ?? null }; current = next; state.transitions.push(next); return next; }
     export async function prepareResumeIntent(input) { state.prepared++; current = { ...current, state: "resuming", revision: current.revision + 1 }; return { intent: current, continuation: { backupPath: "profile/backup", installerPath: process.env.R06_USER_DATA + "/Updates/setup.exe" } }; }
     export async function revalidateResumingUpdate(input) { state.revalidated++; if (process.env.R06_TAMPER === "1") throw new Error("installer hash changed"); return { installerPath: process.env.R06_USER_DATA + "/Updates/setup.exe" }; }
-    export async function clearTerminalIntent() { current = null; return true; }`);
+    export async function clearTerminalIntent() { state.clearCalls++; current = null; return true; }`);
   await writeFile(updater, `const artifact = { platform: "windows", arch: "x64", fileName: "setup.exe", size: 1, sha256: "${"a".repeat(64)}", downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v1/setup.exe" };
     const manifest = { schemaVersion: 1, version: "1.2.3", sourceRevisions: { game: "g", assets: "a", locales: "l" }, artifacts: [artifact] };
     export async function checkForUpdate() { return { available: true, artifact, manifest }; }
@@ -162,12 +162,14 @@ async function createHarness() {
       state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
       await new Promise(resolve => setImmediate(resolve));
       state.coldSnapshot = { flushes: state.flushes, backups: state.backups, relaunches: state.relaunches, args: state.relaunchArgs, created: state.coordinator.created, dialogs: state.dialogs };
-    } else if (process.env.R06_SCENARIO === "cold-veto") {
+    } else if (process.env.R06_SCENARIO === "cold-veto" || process.env.R06_SCENARIO === "cold-persist-failure") {
       await click("Back Up Saves…");
+      if (process.env.R06_SCENARIO === "cold-persist-failure") state.coordinator.failNextTransition = true;
       await new Promise(resolve => setTimeout(resolve, 1900));
       state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
       await new Promise(resolve => setTimeout(resolve, 20));
-      state.coldSnapshot = { flushes: state.flushes, backups: state.backups, relaunches: state.relaunches, current: state.coordinator.getCurrent(), transitions: state.coordinator.transitions, dialogs: state.dialogs, games: games().length };
+      await state.handlers["saves:backup"]();
+      state.coldSnapshot = { flushes: state.flushes, backups: state.backups, relaunches: state.relaunches, created: state.coordinator.created.length, current: state.coordinator.getCurrent(), transitions: state.coordinator.transitions, clearCalls: state.coordinator.clearCalls, dialogs: state.dialogs, games: games().length };
     } else if (process.env.R06_SCENARIO === "update-request") {
       await click("Check for Updates…");
       state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
@@ -232,7 +234,7 @@ async function launch(scenario) {
   const resultPath = join(h.root, "result.json");
   const result = spawnSync(process.execPath, ["--import", pathToFileURL(h.bootstrap).href, h.runner], {
     encoding: "utf8", timeout: 10000,
-    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: ["cold-request", "cold-veto", "update-request", "update-open", "update-tampered"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "update-interrupted" ? "update-resuming" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "" },
+    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: ["cold-request", "cold-veto", "cold-persist-failure", "update-request", "update-open", "update-tampered"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "update-interrupted" ? "update-resuming" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "" },
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   return JSON.parse(await readFile(resultPath, "utf8"));
@@ -305,9 +307,25 @@ test("a shutdown veto or window close cancellation cannot leave a queued worker 
   assert.equal(state.coldSnapshot.flushes, 1);
   assert.equal(state.coldSnapshot.backups, 0);
   assert.equal(state.coldSnapshot.relaunches, 0);
-  assert.equal(state.coldSnapshot.current, null);
+  assert.equal(state.coldSnapshot.current.state, "failed");
+  assert.equal(state.coldSnapshot.created, 1);
+  assert.equal(state.coldSnapshot.clearCalls, 0);
   assert.ok(state.coldSnapshot.transitions.some(intent => intent.state === "failed" && intent.failure.code === "quit-vetoed"));
   assert.ok(state.coldSnapshot.dialogs.some(dialog => dialog.title === "Backup not completed"));
+  assert.ok(state.coldSnapshot.dialogs.some(dialog => dialog.title === "Backup already in progress"));
+  assert.equal(state.coldSnapshot.games, 1);
+});
+
+test("a live failure to persist the veto reports synchronously and keeps later Backup requests blocked", async () => {
+  const state = await launch("cold-persist-failure");
+  assert.equal(state.coldSnapshot.flushes, 1);
+  assert.equal(state.coldSnapshot.backups, 0);
+  assert.equal(state.coldSnapshot.relaunches, 0);
+  assert.equal(state.coldSnapshot.created, 1);
+  assert.equal(state.coldSnapshot.clearCalls, 0);
+  assert.equal(state.coldSnapshot.current.state, "requested");
+  assert.ok(state.coldSnapshot.dialogs.some(dialog => dialog.title === "Backup request needs attention"));
+  assert.ok(state.coldSnapshot.dialogs.some(dialog => dialog.title === "Backup already in progress"));
   assert.equal(state.coldSnapshot.games, 1);
 });
 
