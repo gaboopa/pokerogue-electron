@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -101,7 +101,7 @@ async function readReport(wrapperRoot) {
 }
 
 test("upstream synchronization executes final Node validation safely through paths with spaces", async t => {
-  const root = await mkdtemp(join(tmpdir(), "sync fixture root "));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "sync fixture root ")));
   t.after(() => rm(root, { recursive: true, force: true }));
   const runtimeDirectory = join(root, "Node runtime with spaces");
   const runtimePath = join(runtimeDirectory, basename(process.execPath));
