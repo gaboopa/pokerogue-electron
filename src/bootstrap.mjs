@@ -56,8 +56,9 @@ function parseArguments() {
   const probe = values.get("--r17-probe");
   const allowed = worker
     ? ["--backup-worker", "--backup-token", "--backup-parent-pid", ...(probe ? ["--r17-probe"] : [])]
-    : [...(probe ? ["--r17-probe"] : [])];
+    : ["--updated", ...(probe ? ["--r17-probe"] : [])];
   for (const key of values.keys()) if (!allowed.includes(key)) throw new Error(`Argument ${key} is not valid for this startup mode`);
+  if (values.has("--updated") && values.get("--updated") !== true) throw new Error("Installer notification --updated must be a bare flag");
   if (worker) {
     if (token === true || typeof token !== "string" || !tokenPattern.test(token)) throw new Error("Worker requires one lowercase 64-hex Backup token");
     if (parentPidText === true || typeof parentPidText !== "string" || !/^[1-9]\d{0,9}$/.test(parentPidText)) throw new Error("Worker requires one positive source-process PID");

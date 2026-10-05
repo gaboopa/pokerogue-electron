@@ -5,7 +5,7 @@ $parseTokens = $null
 $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$parseTokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw 'Installer validator did not parse.' }
-foreach ($name in @('Get-FullPathWithin', 'Get-Registration')) {
+foreach ($name in @('Get-FullPathWithin', 'Get-Registration', 'Invoke-SilentUninstaller')) {
   $definition = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
   Invoke-Expression $definition.Extent.Text
 }
@@ -35,3 +35,26 @@ foreach ($mutation in @('identity', 'hive', 'location')) {
   if (-not $rejected) { throw "Unsafe $mutation was accepted." }
 }
 Write-Output 'NSIS registry lookup and install containment checks passed without accessing the registry.'
+
+$auditRoot = Join-Path $env:TEMP "nsis-wait-check-$([guid]::NewGuid().ToString('N'))"
+$installRoot = Join-Path $auditRoot 'installation with spaces'
+New-Item -ItemType Directory -Path $installRoot | Out-Null
+$uninstaller = Join-Path $installRoot 'Uninstall PokeRogue Offline.exe'
+Set-Content -LiteralPath $uninstaller -Value 'inert uninstaller fixture'
+function Invoke-SilentInstaller {
+  param([string]$Path, [string]$AllowedRoot, [string[]]$Arguments)
+  if ($Path -cne (Join-Path $auditRoot 'owned-uninstaller.exe') -or $AllowedRoot -cne $auditRoot) { throw 'Uninstaller copy escaped its owned audit root.' }
+  if ((Get-FileHash -LiteralPath $Path).Hash -cne (Get-FileHash -LiteralPath $uninstaller).Hash) { throw 'Uninstaller copy changed bytes.' }
+  if ($Arguments.Count -ne 2 -or $Arguments[0] -cne '/S' -or $Arguments[1] -cne "_?=$installRoot") { throw 'Direct NSIS uninstall arguments are incorrect.' }
+  $script:uninstallChecked = $true
+}
+try {
+  $script:uninstallChecked = $false
+  Invoke-SilentUninstaller $uninstaller $installRoot
+  if (-not $script:uninstallChecked) { throw 'The direct uninstaller was not awaited.' }
+  Write-Output 'NSIS direct-copy uninstall check passed without executing an installer.'
+} finally {
+  # auditRoot is a freshly created, explicitly contained test directory.
+  $checkedRoot = Get-FullPathWithin $auditRoot $env:TEMP
+  Remove-Item -LiteralPath $checkedRoot -Recurse -Force
+}

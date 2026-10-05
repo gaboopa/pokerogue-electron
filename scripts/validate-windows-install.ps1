@@ -59,15 +59,25 @@ function Get-AppRegistrations {
   return $registrations
 }
 
-function Invoke-SilentInstaller([string]$Path, [string]$AllowedRoot) {
+function Invoke-SilentInstaller([string]$Path, [string]$AllowedRoot, [string[]]$Arguments = @('/S')) {
   $installerPath = Get-FullPathWithin $Path $AllowedRoot
   if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) { throw "Installer is missing: $installerPath" }
-  $process = Start-Process -FilePath $installerPath -ArgumentList @('/S') -WindowStyle Hidden -PassThru
+  $process = Start-Process -FilePath $installerPath -ArgumentList $Arguments -WindowStyle Hidden -PassThru
   if (-not $process.WaitForExit(900000)) {
     Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     throw "Silent installer timed out: $Path"
   }
   if ($process.ExitCode -ne 0) { throw "Silent installer exited with code $($process.ExitCode): $Path" }
+}
+
+function Invoke-SilentUninstaller([string]$Path, [string]$InstallRoot) {
+  $uninstaller = Get-FullPathWithin $Path $InstallRoot
+  $copy = Get-FullPathWithin (Join-Path $auditRoot 'owned-uninstaller.exe') $auditRoot
+  # NSIS's normal launcher forks and exits. Run an owned copy directly so we
+  # observe the actual exit code and let it delete the installed uninstaller.
+  # https://nsis.sourceforge.io/Docs/AppendixD.html#D.1
+  Copy-Item -LiteralPath $uninstaller -Destination $copy -Force
+  Invoke-SilentInstaller $copy $auditRoot @('/S', "_?=$InstallRoot")
 }
 
 function Get-Registration {
@@ -217,7 +227,7 @@ try {
   $evidence.registrationIdentity.upgradedDisplayVersion = $upgradedRegistration.DisplayVersion
   $evidence.checks.Add('Upgraded silently, retained one unchanged per-user registration identity, and preserved every sentinel/configuration file byte-for-byte.')
 
-  Invoke-SilentInstaller $uninstallerPath $initialRegistration.InstallLocation
+  Invoke-SilentUninstaller $uninstallerPath $initialRegistration.InstallLocation
   $uninstallCompleted = $true
   if (@(Get-AppRegistrations).Count -ne 0) { throw 'The app registration remains after silent uninstall.' }
   if (Test-Path -LiteralPath $uninstallerPath) { throw 'The app uninstaller remains after silent uninstall.' }
@@ -249,7 +259,7 @@ try {
           }
           $remainingInstaller = Get-FullPathWithin (Join-Path $remainingRegistration.InstallLocation 'Uninstall PokeRogue Offline.exe') $remainingRegistration.InstallLocation
           if (Test-Path -LiteralPath $remainingInstaller -PathType Leaf) {
-            Invoke-SilentInstaller $remainingInstaller $remainingRegistration.InstallLocation
+            Invoke-SilentUninstaller $remainingInstaller $remainingRegistration.InstallLocation
             $evidence.cleanup = 'removed the recorded partial installation with its contained per-user uninstaller; user data was retained'
           } else {
             $evidence.cleanup = 'recorded installation remains without its expected uninstaller; ephemeral runner will be discarded'

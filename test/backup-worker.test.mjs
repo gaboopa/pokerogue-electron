@@ -402,7 +402,7 @@ test("R17 synchronously imports normal main before Electron readiness with dispo
   const source = join(root, "source-profile");
   const { server, origin } = await startServer();
   try {
-    const main = launchElectron(["--r17-probe=sync-main"], { root, source, origin });
+    const main = launchElectron(["--updated", "--r17-probe=sync-main"], { root, source, origin });
     const result = await main.done;
     assert.equal(result.code, 0, result.stderr);
     assert.match(result.stderr, /sync-main-required-before-ready/);
@@ -419,6 +419,18 @@ test("R17 rejects malformed worker arguments and stale tokens visibly before cop
   const { server, origin } = await startServer();
   const children = new Set();
   try {
+    for (const argumentsToReject of [
+      ["--updated=yes", "--r17-probe=sync-main"],
+      ["--updated", "--updated", "--r17-probe=sync-main"],
+      ["--backup-worker", "--updated", "--r17-probe=worker"],
+    ]) {
+      const invalid = launchElectron(argumentsToReject, { root, source, origin });
+      children.add(invalid.child);
+      const result = await invalid.done;
+      assert.notEqual(result.code, 0, JSON.stringify(argumentsToReject));
+      assert.match(result.stderr, /bare flag|duplicate application argument|not valid for this startup mode/);
+      assert.equal(existsSync(join(source, "Save Backups")), false);
+    }
     const malformed = launchElectron(["--backup-worker", "--backup-token=not-a-token", "--backup-parent-pid=1", "--r17-probe=worker"], { root, source, origin });
     children.add(malformed.child);
     const malformedResult = await malformed.done;
