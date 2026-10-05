@@ -23,12 +23,14 @@ async function createHarness() {
   const coordinator = join(root, "coordinator.mjs");
   const updater = join(root, "updater.mjs");
   const keymap = join(root, "keymap.mjs");
+  const retention = join(root, "retention.mjs");
   const runner = join(root, "runner.mjs");
   await writeFile(loader, `export async function resolve(specifier, context, nextResolve) {
     if (specifier === "electron") return { url: new URL("./electron.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./backup.mjs") return { url: new URL("./backup.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./backup-coordinator.mjs") return { url: new URL("./coordinator.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./updater.mjs") return { url: new URL("./updater.mjs", import.meta.url).href, shortCircuit: true };
+    if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./retention.mjs") return { url: new URL("./retention.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./keymap-store.mjs") return { url: new URL("./keymap.mjs", import.meta.url).href, shortCircuit: true };
     return nextResolve(specifier, context);
   }`);
@@ -91,7 +93,7 @@ async function createHarness() {
     export async function validateBackup() { globalThis.__r06.validations = (globalThis.__r06.validations ?? 0) + 1; }
     export async function createBackup() { globalThis.__r06.backups++; return process.env.R06_USER_DATA + "/Save Backups/test.zip"; }
     export async function restoreBackup() { globalThis.__r06.restoreCalls = (globalThis.__r06.restoreCalls ?? 0) + 1; globalThis.__r06.events.push("restore"); }`);
-  await writeFile(coordinator, `let current = ["update-captured", "restore-captured", "cheat-captured"].includes(process.env.R06_INITIAL_INTENT) ? { token: "${"b".repeat(64)}", operation: process.env.R06_INITIAL_INTENT.split("-")[0], state: "captured", revision: 3, capturedBackupPath: "profile/backup", payload: {} } : process.env.R06_INITIAL_INTENT === "update-resuming" ? { token: "${"c".repeat(64)}", operation: "update", state: "resuming", revision: 4, capturedBackupPath: "profile/backup", payload: {} } : process.env.R06_INITIAL_INTENT === "restore-resuming" ? { token: "${"d".repeat(64)}", operation: "restore", state: "resuming", revision: 4, capturedBackupPath: "profile/backup", payload: {} } : null;
+  await writeFile(coordinator, `let current = ["update-captured", "restore-captured", "cheat-captured"].includes(process.env.R06_INITIAL_INTENT) ? { token: "${"b".repeat(64)}", operation: process.env.R06_INITIAL_INTENT.split("-")[0], state: "captured", revision: 3, capturedBackupPath: "profile/backup", payload: {} } : process.env.R06_INITIAL_INTENT === "unknown-operation" ? { token: "${"e".repeat(64)}", operation: "future", state: "requested", revision: 0, capturedBackupPath: null, payload: {} } : process.env.R06_INITIAL_INTENT === "update-resuming" ? { token: "${"c".repeat(64)}", operation: "update", state: "resuming", revision: 4, capturedBackupPath: "profile/backup", payload: {} } : process.env.R06_INITIAL_INTENT === "restore-resuming" ? { token: "${"d".repeat(64)}", operation: "restore", state: "resuming", revision: 4, capturedBackupPath: "profile/backup", payload: {} } : null;
     export const state = globalThis.__r06.coordinator = { created: [], transitions: [], clearCalls: 0, failNextTransition: false, prepared: 0, revalidated: 0, getCurrent: () => current };
     export async function recoverStaleIntentLock() { return false; }
     export async function readCurrentIntent() { return current; }
@@ -104,6 +106,9 @@ async function createHarness() {
     const manifest = { schemaVersion: 1, version: "1.2.3", sourceRevisions: { game: "g", assets: "a", locales: "l" }, artifacts: [artifact] };
     export async function checkForUpdate() { return { available: true, artifact, manifest }; }
     export async function downloadVerified() { globalThis.__r06.downloads = (globalThis.__r06.downloads ?? 0) + 1; return process.env.R06_USER_DATA + "/Updates/setup.exe"; }`);
+  await writeFile(retention, `const record = (kind, root, arg) => { (globalThis.__r06.prunes ??= []).push({ kind, root, arg }); if (process.env.R06_PRUNE_THROW) throw new Error("injected prune failure"); return { removed: [], errors: [{ path: root, message: "injected entry error" }] }; };
+    export async function pruneAutomaticBackups(root, keep) { return record("backups", root, keep); }
+    export async function pruneUpdateDownloads(root, version) { return record("updates", root, version); }`);
   await writeFile(keymap, `let calls = 0; let mtimeReads = 0;
     export async function loadKeymap() { calls++; if (calls === 2 && process.env.R06_DELAY_KEYMAP) { globalThis.__r06.signalKeymapStarted(); await globalThis.__r06.keymapGate; } return []; }
     export async function keymapModifiedAt() { return ++mtimeReads === 1 ? 1 : 2; }
@@ -243,7 +248,7 @@ async function createHarness() {
       auxiliaryAlive: state.auxiliaryAlive, replacementShown: state.replacementShown, keyboardPrevented: state.keyboardPrevented,
       afterF5Reloads: state.afterF5Reloads, keyboardModifiedPrevented: state.keyboardModifiedPrevented, guardSnapshot: state.guardSnapshot,
       keymapRace: state.keymapRace, loadRecovery: state.loadRecovery,
-      coldSnapshot: state.coldSnapshot,
+      coldSnapshot: state.coldSnapshot, prunes: state.prunes ?? [],
     };
     await (await import("node:fs/promises")).writeFile(process.env.R06_RESULT, JSON.stringify(snapshot));`);
   return { root, bootstrap, runner };
@@ -255,9 +260,13 @@ async function launch(scenario) {
   const resultPath = join(h.root, "result.json");
   const selectedBackup = join(h.root, "selected-backup");
   await mkdir(selectedBackup);
+  if (scenario === "prune-marker") {
+    await mkdir(userData, { recursive: true });
+    await writeFile(join(userData, "pending-restore.json"), JSON.stringify({ version: 1, status: "failed", recoveryRequired: false, selected: selectedBackup, error: { message: "earlier failure" } }));
+  }
   const result = spawnSync(process.execPath, ["--import", pathToFileURL(h.bootstrap).href, h.runner], {
     encoding: "utf8", timeout: 10000,
-    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SELECTED_BACKUP: ["restore-request", "restore-cancel", "restore-resume"].includes(scenario) ? selectedBackup : "", R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: ["cold-request", "cold-veto", "cold-persist-failure", "update-request", "update-open", "update-tampered", "cheat-request", "cheat-veto", "restore-request"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "update-interrupted" ? "update-resuming" : scenario === "restore-resume" ? "restore-captured" : scenario === "restore-interrupted" ? "restore-resuming" : scenario === "cheat-resume" ? "cheat-captured" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "" },
+    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SELECTED_BACKUP: ["restore-request", "restore-cancel", "restore-resume"].includes(scenario) ? selectedBackup : "", R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: ["cold-request", "cold-veto", "cold-persist-failure", "update-request", "update-open", "update-tampered", "cheat-request", "cheat-veto", "restore-request"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "prune-journal" ? "unknown-operation" : scenario === "update-interrupted" ? "update-resuming" : scenario === "restore-resume" ? "restore-captured" : scenario === "restore-interrupted" ? "restore-resuming" : scenario === "cheat-resume" ? "cheat-captured" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "", R06_PRUNE_THROW: scenario === "prune-throws" ? "1" : "" },
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   return JSON.parse(await readFile(resultPath, "utf8"));
@@ -476,4 +485,27 @@ test("real game navigation failures are reported and activation can retry", asyn
 test("closing every window preserves the platform-specific quit behavior", async () => {
   const state = await launch("windows-quit");
   assert.equal(state.quits, state.platform === "darwin" ? 0 : 1);
+});
+
+test("startup pruning runs once on a clean profile, before the window", async () => {
+  const state = await launch("prune-clean");
+  assert.deepEqual(state.prunes.map(call => [call.kind, call.arg]), [["backups", 5], ["updates", "test"]]);
+  assert.match(state.prunes[0].root, /[\\/]Save Backups$/);
+  assert.match(state.prunes[1].root, /[\\/]Updates$/);
+  assert.equal(state.games, 1);
+});
+
+test("startup pruning is skipped while a journal or pending-restore.json exists", async () => {
+  const journal = await launch("prune-journal");
+  assert.deepEqual(journal.prunes, []);
+  assert.equal(journal.games, 1);
+  const marker = await launch("prune-marker");
+  assert.deepEqual(marker.prunes, []);
+  assert.equal(marker.games, 1);
+});
+
+test("a pruning failure is reported to stderr and never blocks startup", async () => {
+  const state = await launch("prune-throws");
+  assert.equal(state.prunes.length, 1);
+  assert.equal(state.games, 1);
 });

@@ -23,6 +23,7 @@ async function harness() {
   const electron = join(root, "electron.mjs");
   const backup = join(root, "backup.mjs");
   const coordinator = join(root, "coordinator.mjs");
+  const retention = join(root, "retention.mjs");
   const fsStub = join(root, "fs.mjs");
   const runner = join(root, "runner.mjs");
   await writeFile(loader, `export async function resolve(specifier, context, nextResolve) {
@@ -32,6 +33,7 @@ async function harness() {
       if (process.env.R05_REAL_COORDINATOR) return nextResolve(specifier, context);
       return { url: new URL("./coordinator.mjs", import.meta.url).href, shortCircuit: true };
     }
+    if (context.parentURL === process.env.R05_MAIN_URL && specifier === "./retention.mjs") return { url: new URL("./retention.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R05_MAIN_URL && specifier === "node:fs/promises") return { url: new URL("./fs.mjs", import.meta.url).href, shortCircuit: true };
     return nextResolve(specifier, context);
   }`);
@@ -74,6 +76,8 @@ async function harness() {
     export async function prepareResumeIntent() { throw new Error("The worker continuation is not run in this recovery harness"); }
     export async function revalidateResumingUpdate() { throw new Error("Unexpected Update continuation"); }
     export async function clearTerminalIntent() { current = null; return true; }`);
+  await writeFile(retention, `export async function pruneAutomaticBackups() { return { removed: [], errors: [] }; }
+    export async function pruneUpdateDownloads() { return { removed: [], errors: [] }; }`);
   await writeFile(fsStub, `import * as fs from "node:fs/promises";
     export const mkdir = fs.mkdir;
     export const readFile = async (p, ...a) => { if (process.env.R05_FAIL_READ && String(p).endsWith("pending-restore.json")) throw Object.assign(new Error("marker read failed"), { code: "EACCES" }); return fs.readFile(p, ...a); };

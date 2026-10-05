@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell } f
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { APP_ORIGIN, PRODUCT_NAME, UPDATE_REPOSITORY } from "./constants.mjs";
+import { APP_ORIGIN, AUTOMATIC_BACKUPS_KEPT, PRODUCT_NAME, UPDATE_REPOSITORY } from "./constants.mjs";
+import { pruneAutomaticBackups, pruneUpdateDownloads } from "./retention.mjs";
 import { BackupRestoreError, restoreBackup, validateBackup } from "./backup.mjs";
 import { applyCheatConfiguration } from "./cheats.mjs";
 import { createCheatController } from "./cheat-main.mjs";
@@ -651,6 +652,17 @@ async function createWindow() {
   }
 }
 
+async function pruneStaleFiles() {
+  try {
+    const { userData, backupRoot, downloadRoot } = paths();
+    if (await readCurrentIntent({ userData })) return;
+    try { await readFile(restoreMarkerPath(), "utf8"); return; }
+    catch (error) { if (error.code !== "ENOENT") throw error; }
+    const results = [await pruneAutomaticBackups(backupRoot, AUTOMATIC_BACKUPS_KEPT), await pruneUpdateDownloads(downloadRoot, app.getVersion())];
+    for (const { errors } of results) for (const error of errors) process.stderr.write(`Could not clean up ${error.path}: ${error.message}\n`);
+  } catch (error) { process.stderr.write(`Startup cleanup skipped: ${error.message}\n`); }
+}
+
 app.whenReady().then(async () => {
   await mkdir(paths().backupRoot, { recursive: true });
   await applyPendingRestore();
@@ -662,6 +674,7 @@ app.whenReady().then(async () => {
     return;
   }
   if (startupRecoveryBlocked || startupRestarting) return;
+  await pruneStaleFiles();
   await reloadKeybindings();
   registerGameProtocol(protocol, gameRoot);
   installNetworkPolicy();

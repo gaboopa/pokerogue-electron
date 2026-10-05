@@ -63,6 +63,8 @@ Use the **PokéRogue Offline** application menu to:
 - **Restore Backup** — restore a backup after it passes an integrity check;
 - **Open Save Folder** — open the folder containing saves and backups.
 
+The app keeps the five most recent automatic Backups (those made before an Update, Restore or cheat change) and removes older ones at startup; Backups you make yourself with **Back Up Saves** are never removed automatically. Installers for versions you have already installed are removed from the app's Updates folder.
+
 The app also retains PokéRogue's save export and import features. Back up important progress before changing computers or removing application data.
 
 New Backups use schema version 2. Their SHA-256 checksum covers the canonical storage inventory, creation time, and a length-framed data tree. Restore rejects missing, duplicate, unexpected, or symbolic-link data entries before changing Save data. An empty snapshot is valid only when its data directory is also empty; restoring it leaves current storage directories alone.
