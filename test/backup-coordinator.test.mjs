@@ -4,12 +4,13 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   cleanupCaptureStage,
   clearTerminalIntent,
   createIntent,
   getCapturePaths,
+  parseBackupName,
   prepareResumeIntent,
   readIntent,
   recoverStaleIntentLock,
@@ -35,8 +36,8 @@ async function makeBackup(userData, backupRoot) {
   return createBackup(userData, backupRoot);
 }
 
-async function publishCapture(userData, token) {
-  const paths = getCapturePaths(userData, token);
+async function publishCapture(userData, intent) {
+  const paths = getCapturePaths(userData, intent);
   await mkdir(paths.stageRoot, { recursive: true });
   const backupPath = await makeBackup(userData, paths.stageRoot);
   await rename(backupPath, paths.finalBackupPath);
@@ -118,7 +119,7 @@ async function captureIntent(userData, intent) {
     expectedRevision: intent.revision,
     nextState: "capturing",
   });
-  const capturedBackupPath = await publishCapture(userData, intent.token);
+  const capturedBackupPath = await publishCapture(userData, intent);
   return transitionIntent({
     userData,
     expectedToken: intent.token,
@@ -131,14 +132,14 @@ async function captureIntent(userData, intent) {
 test("creates a versioned cryptographic intent with only app-owned paths and a token-owned stage", async () => {
   await withProfile(async ({ userData }) => {
     const intent = await createIntent({ userData, operation: "manual", payload: {} });
-    const paths = getCapturePaths(userData, intent.token);
+    const paths = getCapturePaths(userData, intent);
     assert.equal(intent.version, 1);
     assert.match(intent.token, /^[a-f0-9]{64}$/);
     assert.equal(intent.sourceProfile, userData);
     assert.equal(intent.backupRoot, join(userData, "Save Backups"));
     assert.equal(intent.updateRoot, join(userData, "Updates"));
     assert.equal(paths.stageRoot, join(intent.backupRoot, `.capture-${intent.token}`));
-    assert.equal(paths.finalBackupPath, join(intent.backupRoot, `backup-capture-${intent.token}`));
+    assert.equal(paths.finalBackupPath, join(intent.backupRoot, `backup-${intent.createdAt.replaceAll(":", "-")}-manual-${intent.token.slice(0, 8)}`));
     assert.equal(intent.state, "requested");
     assert.equal(intent.revision, 0);
     assert.deepEqual(await readIntent({ userData, expectedToken: intent.token }), intent);
@@ -184,7 +185,7 @@ test("corrupt published Backup blocks resume but terminal failure and private-st
   await withProfile(async ({ userData }) => {
     const requested = await createIntent({ userData, operation: "manual", payload: {} });
     const captured = await captureIntent(userData, requested);
-    const paths = getCapturePaths(userData, captured.token);
+    const paths = getCapturePaths(userData, captured);
     const savedData = join(captured.capturedBackupPath, "data", "Local Storage", "probe.txt");
     await writeFile(savedData, "corrupted after publication");
     await mkdir(paths.stageRoot, { recursive: true });
@@ -218,8 +219,8 @@ test("a vetoed cancelled intent keeps new requests busy until startup acknowledg
 
     await clearTerminalIntent({ userData, expectedToken: state.token, startupConfirmed: true });
     const next = await createIntent({ userData, operation: "manual", payload: {} });
-    const nextStage = getCapturePaths(userData, next.token).stageRoot;
-    const oldStage = getCapturePaths(userData, state.token).stageRoot;
+    const nextStage = getCapturePaths(userData, next).stageRoot;
+    const oldStage = getCapturePaths(userData, state).stageRoot;
     await mkdir(nextStage, { recursive: true });
     await writeFile(join(nextStage, "keep.txt"), "new intent owns this");
     await mkdir(oldStage, { recursive: true });
@@ -241,7 +242,7 @@ test("an old in-flight Update resume cannot replace a newer intent after termina
   await withProfile(async ({ userData }) => {
     const bytes = Buffer.alloc(128 * 1024 * 1024, 0x5a);
     const old = await createIntent({ userData, operation: "update", payload: updatePayload(bytes) });
-    const paths = getCapturePaths(userData, old.token);
+    const paths = getCapturePaths(userData, old);
     await mkdir(paths.updateRoot, { recursive: true });
     await writeFile(join(paths.updateRoot, "windows.exe"), bytes);
     const captured = await captureIntent(userData, old);
@@ -345,7 +346,7 @@ test("Update resume revalidates the owned basename, release descriptor, exact by
     const payload = updatePayload(bytes);
     const artifact = payload.manifest.artifacts[0];
     const intent = await createIntent({ userData, operation: "update", payload });
-    const paths = getCapturePaths(userData, intent.token);
+    const paths = getCapturePaths(userData, intent);
     const installerPath = join(paths.updateRoot, "windows.exe");
     await mkdir(paths.updateRoot, { recursive: true });
     await writeFile(installerPath, bytes);
@@ -358,7 +359,7 @@ test("Update resume revalidates the owned basename, release descriptor, exact by
     const secondProfile = join(userData, "second-profile");
     await mkdir(secondProfile, { recursive: true });
     const secondIntent = await createIntent({ userData: secondProfile, operation: "update", payload: updatePayload(changed) });
-    const secondPaths = getCapturePaths(secondProfile, secondIntent.token);
+    const secondPaths = getCapturePaths(secondProfile, secondIntent);
     await mkdir(secondPaths.updateRoot, { recursive: true });
     await writeFile(join(secondPaths.updateRoot, "windows.exe"), changed);
     const secondCaptured = await captureIntent(secondProfile, secondIntent);
@@ -404,7 +405,7 @@ test("interrupted capture is never replayed and cleanup deletes only its derived
       expectedRevision: intent.revision,
       nextState: "capturing",
     });
-    const paths = getCapturePaths(userData, intent.token);
+    const paths = getCapturePaths(userData, intent);
     await mkdir(paths.stageRoot, { recursive: true });
     await writeFile(join(paths.stageRoot, "partial.txt"), "partial capture");
     const foreign = join(root, "foreign-stage");
@@ -441,7 +442,7 @@ test("unknown journal fields and mismatched app-owned roots fail closed", async 
     stored.captureStage = join(userData, "arbitrary-delete-me");
     await writeFile(journalPath, JSON.stringify(stored));
     await assert.rejects(readIntent({ userData, expectedToken: intent.token }), /key|shape|malformed/i);
-    assert.throws(() => getCapturePaths(userData, "..\\outside"), /token/i);
+    assert.throws(() => getCapturePaths(userData, { ...intent, token: "..\\outside" }), /token/i);
 
     const otherProfile = join(userData, "other");
     await mkdir(otherProfile, { recursive: true });
@@ -467,5 +468,48 @@ test("public transition inputs reject unknown fields and malformed tokens", asyn
       cleanupPath: join(userData, "arbitrary"),
     }), /key|shape/i);
     await assert.rejects(readIntent({ userData, expectedToken: "../bad" }), /token/i);
+  });
+});
+
+test("published Backup names carry the request time, operation and short token and round-trip through the parser", async () => {
+  await withProfile(async ({ userData }) => {
+    const intent = await createIntent({ userData, operation: "manual", payload: {} });
+    const { finalBackupPath, stageRoot } = getCapturePaths(userData, intent);
+    const name = basename(finalBackupPath);
+    assert.match(name, /^backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z-manual-[a-f0-9]{8}$/);
+    assert.deepEqual(parseBackupName(name), { stamp: intent.createdAt.replaceAll(":", "-"), operation: "manual", token8: intent.token.slice(0, 8) });
+    for (const operation of ["update", "restore", "cheat"]) assert.equal(parseBackupName(basename(getCapturePaths(userData, { ...intent, operation }).finalBackupPath)).operation, operation);
+    for (const other of ["backup-2026-10-05T16-19-07.123Z-1a2b3c4d-1111-4111-8111-111111111111", `backup-capture-${intent.token}`, basename(stageRoot), ".backup-2026-10-05T16-19-07.123Z-manual-1a2b3c4d", `${name}x`, "backup-2026-10-05T16-19-07.123Z-other-1a2b3c4d", 42]) {
+      assert.equal(parseBackupName(other), null, String(other));
+    }
+    assert.throws(() => getCapturePaths(userData, { ...intent, createdAt: "2026-10-05" }), /creation time/i);
+    assert.throws(() => getCapturePaths(userData, { ...intent, operation: "other" }), /operation/i);
+  });
+});
+
+test("a journal or completion naming any directory other than the derived Backup path is rejected", async () => {
+  await withProfile(async ({ userData }) => {
+    const intent = await createIntent({ userData, operation: "manual", payload: {} });
+    const capturing = await transitionIntent({ userData, expectedToken: intent.token, expectedRevision: 0, nextState: "capturing" });
+    const derived = await publishCapture(userData, intent);
+    const bad = [
+      join(intent.backupRoot, `backup-capture-${intent.token}`),
+      join(intent.backupRoot, basename(derived).replace("-manual-", "-update-")),
+      join(intent.backupRoot, basename(derived).replace(intent.createdAt.replaceAll(":", "-"), "2000-01-01T00-00-00.000Z")),
+      join(intent.backupRoot, basename(derived).replace(intent.token.slice(0, 8), "00000000")),
+      join(userData, "elsewhere"),
+    ];
+    for (const path of bad) {
+      await assert.rejects(transitionIntent({ userData, expectedToken: intent.token, expectedRevision: capturing.revision, nextState: "captured", capturedBackupPath: path }), /published Backup path/i, path);
+    }
+    const captured = await transitionIntent({ userData, expectedToken: intent.token, expectedRevision: capturing.revision, nextState: "captured", capturedBackupPath: derived });
+    const journalPath = join(userData, "backup-intent.json");
+    const stored = JSON.parse(await readFile(journalPath, "utf8"));
+    for (const path of bad) {
+      await writeFile(journalPath, JSON.stringify({ ...stored, capturedBackupPath: path }));
+      await assert.rejects(readIntent({ userData, expectedToken: intent.token }), /publication path/i, path);
+    }
+    await writeFile(journalPath, JSON.stringify(stored));
+    assert.equal((await readIntent({ userData, expectedToken: intent.token })).capturedBackupPath, captured.capturedBackupPath);
   });
 });

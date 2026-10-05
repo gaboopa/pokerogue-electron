@@ -78,7 +78,7 @@ export async function runBackupWorker() {
     intent = await transitionIntent({ userData: context.sourceUserData, expectedToken: context.token, expectedRevision: intent.revision, nextState: "capturing" });
     captureStarted = true;
 
-    const paths = getCapturePaths(context.sourceUserData, context.token);
+    const paths = getCapturePaths(context.sourceUserData, intent);
     if (!within(paths.backupRoot, paths.stageRoot)) throw new Error("Token-owned capture container escaped the app Backup root");
     await ensureSafeBackupRoot(context.sourceUserData, paths.backupRoot);
     await mkdir(paths.stageRoot, { recursive: false });

@@ -114,7 +114,7 @@ async function seedSafeColdRestore(userData, root) {
   const freshSelected = await createBackup(userData, join(root, "fresh-selected"));
   const old = await createIntent({ userData, operation: "restore", payload: { selectedBackup: oldSelected } });
   let current = await transitionIntent({ userData, expectedToken: old.token, expectedRevision: old.revision, nextState: "capturing" });
-  const capture = getCapturePaths(userData, old.token);
+  const capture = getCapturePaths(userData, old);
   const oldCapture = await createBackup(userData, join(root, "old-capture"));
   await mkdir(capture.backupRoot, { recursive: true });
   await cp(oldCapture, capture.finalBackupPath, { recursive: true });
@@ -126,7 +126,7 @@ async function seedSafeColdRestore(userData, root) {
 
 async function captureIntent(userData, intent) {
   let current = await transitionIntent({ userData, expectedToken: intent.token, expectedRevision: intent.revision, nextState: "capturing" });
-  const capture = getCapturePaths(userData, intent.token);
+  const capture = getCapturePaths(userData, intent);
   const published = await createBackup(userData, join(userData, "test-capture-stage"));
   await mkdir(capture.backupRoot, { recursive: true });
   await cp(published, capture.finalBackupPath, { recursive: true });

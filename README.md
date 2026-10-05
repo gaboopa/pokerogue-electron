@@ -59,7 +59,7 @@ Your saves are stored separately from the installed application. Installing a ne
 
 Use the **PokéRogue Offline** application menu to:
 
-- **Back Up Saves** — create a timestamped local backup;
+- **Back Up Saves** — create a timestamped local backup. The folder name shows when the Backup was requested (UTC) and why it was made (manual, update, restore, cheat);
 - **Restore Backup** — restore a backup after it passes an integrity check;
 - **Open Save Folder** — open the folder containing saves and backups.
 

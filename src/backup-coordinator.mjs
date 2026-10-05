@@ -26,6 +26,7 @@ const transitions = Object.freeze({
   failed: [],
 });
 const tokenPattern = /^[a-f0-9]{64}$/;
+const backupNamePattern = new RegExp(String.raw`^backup-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z)-(${BACKUP_INTENT_OPERATIONS.join("|")})-([a-f0-9]{8})$`);
 
 function fail(message) {
   throw new Error(message);
@@ -186,7 +187,7 @@ function validateIntent(intent, paths) {
   assertIntentPaths(intent, paths);
   validatePayloadShape(intent.operation, intent.payload);
   if (intent.capturedBackupPath !== null) {
-    const expected = getCapturePaths(paths.userData, intent.token).finalBackupPath;
+    const expected = getCapturePaths(paths.userData, intent).finalBackupPath;
     if (!samePath(intent.capturedBackupPath, expected)) fail("Captured Backup path is not the token-owned publication path");
   }
   return intent;
@@ -287,8 +288,8 @@ async function withIntentLock(paths, operation) {
   finally { await releaseIntentLock(paths, owner); }
 }
 
-async function validatePublishedCapture(paths, token, capturedBackupPath) {
-  const expected = getCapturePaths(paths.userData, token).finalBackupPath;
+async function validatePublishedCapture(paths, intent, capturedBackupPath) {
+  const expected = getCapturePaths(paths.userData, intent).finalBackupPath;
   if (typeof capturedBackupPath !== "string" || !samePath(capturedBackupPath, expected)) fail("Capture completion must use the token-owned published Backup path");
   await assertRealDirectory(paths.backupRoot, "App-owned Backup root");
   const info = await lstat(expected);
@@ -346,15 +347,22 @@ async function replaceJournal(paths, intent) {
   }
 }
 
-export function getCapturePaths(userData, token) {
+export function parseBackupName(name) {
+  const match = typeof name === "string" ? backupNamePattern.exec(name) : null;
+  return match ? { stamp: match[1], operation: match[2], token8: match[3] } : null;
+}
+
+export function getCapturePaths(userData, { token, createdAt, operation }) {
   const paths = pathsFor(userData);
   if (typeof token !== "string" || !tokenPattern.test(token)) fail("Capture token is invalid");
+  assertIsoTimestamp(createdAt, "creation time");
+  if (!BACKUP_INTENT_OPERATIONS.includes(operation)) fail("Capture operation is invalid");
   return {
     backupRoot: paths.backupRoot,
     updateRoot: paths.updateRoot,
     journalPath: paths.journalPath,
     stageRoot: join(paths.backupRoot, `.capture-${token}`),
-    finalBackupPath: join(paths.backupRoot, `backup-capture-${token}`),
+    finalBackupPath: join(paths.backupRoot, `backup-${createdAt.replaceAll(":", "-")}-${operation}-${token.slice(0, 8)}`),
   };
 }
 
@@ -416,7 +424,8 @@ export async function transitionIntent(input) {
   const { userData, expectedToken, expectedRevision, nextState, capturedBackupPath, failure, ownerExited } = input;
   const paths = pathsFor(userData);
   if (nextState === "captured") {
-    await validatePublishedCapture(paths, expectedToken, capturedBackupPath);
+    const snapshot = await readIntentFile(paths, expectedToken);
+    await validatePublishedCapture(paths, snapshot, capturedBackupPath);
   } else if (capturedBackupPath !== undefined) {
     fail("Only capture completion may set the published Backup path");
   }
@@ -435,7 +444,7 @@ export async function transitionIntent(input) {
       state: nextState,
       revision: current.revision + 1,
       updatedAt: new Date().toISOString(),
-      capturedBackupPath: nextState === "captured" ? getCapturePaths(paths.userData, current.token).finalBackupPath : current.capturedBackupPath,
+      capturedBackupPath: nextState === "captured" ? getCapturePaths(paths.userData, current).finalBackupPath : current.capturedBackupPath,
       failure: nextFailure,
     };
     assertIntentShape(next);
@@ -541,7 +550,7 @@ export async function cleanupCaptureStage(input) {
   return withIntentLock(paths, async () => {
     const intent = await readIntentFile(paths, expectedToken);
     if (!["interrupted", "completed", "cancelled", "failed"].includes(intent.state)) fail("Capture stage cleanup requires a terminal or interrupted intent");
-    const stagePath = getCapturePaths(paths.userData, intent.token).stageRoot;
+    const stagePath = getCapturePaths(paths.userData, intent).stageRoot;
     let rootInfo;
     try { rootInfo = await lstat(paths.backupRoot); }
     catch (error) { if (error.code === "ENOENT") return false; throw error; }

@@ -24,8 +24,9 @@ async function withProfile(run) {
   finally { await rm(root, { recursive: true, force: true }); }
 }
 
-async function publishCapture(userData, token) {
-  const paths = getCapturePaths(userData, token);
+async function publishCapture(userData, intent) {
+  const { token } = intent;
+  const paths = getCapturePaths(userData, intent);
   await mkdir(paths.stageRoot, { recursive: true });
   await mkdir(join(userData, "Local Storage"), { recursive: true });
   await writeFile(join(userData, "Local Storage", "save.json"), "normalized save payload");
@@ -56,7 +57,7 @@ function updatePayload(bytes) {
 test("manual capture resumes once with normalized save data retained and acknowledges only at startup", async () => {
   await withProfile(async ({ userData }) => {
     const requested = await createIntent({ userData, operation: "manual", payload: {} });
-    const captured = await publishCapture(userData, requested.token);
+    const captured = await publishCapture(userData, requested);
     const resumed = await prepareResumeIntent({ userData, expectedToken: captured.token, expectedRevision: captured.revision });
     assert.equal(resumed.intent.state, "resuming");
     assert.equal(resumed.continuation.backupPath, captured.capturedBackupPath);
@@ -85,7 +86,7 @@ test("Update continuation resolves only to the revalidated app-owned installer",
     await mkdir(updateRoot);
     await writeFile(join(updateRoot, "setup.exe"), bytes);
     const requested = await createIntent({ userData, operation: "update", payload });
-    const captured = await publishCapture(userData, requested.token);
+    const captured = await publishCapture(userData, requested);
     const resumed = await prepareResumeIntent({ userData, expectedToken: captured.token, expectedRevision: captured.revision });
     const verified = await revalidateResumingUpdate({ userData, expectedToken: captured.token, expectedRevision: resumed.intent.revision });
     assert.equal(verified.installerPath, join(updateRoot, "setup.exe"));
@@ -102,7 +103,7 @@ test("missing, tampered, stale, and arbitrary Update installer paths fail closed
     await mkdir(updateRoot);
     await writeFile(join(updateRoot, "setup.exe"), bytes);
     const requested = await createIntent({ userData, operation: "update", payload });
-    const captured = await publishCapture(userData, requested.token);
+    const captured = await publishCapture(userData, requested);
     const resumed = await prepareResumeIntent({ userData, expectedToken: captured.token, expectedRevision: captured.revision });
     await writeFile(join(updateRoot, "setup.exe"), "changed bytes");
     await assert.rejects(revalidateResumingUpdate({ userData, expectedToken: captured.token, expectedRevision: resumed.intent.revision }), /size|hash/i);
@@ -121,7 +122,7 @@ test("restore and cheat continuations are captured once and require a fresh star
     await mkdir(selectedBackup);
     const published = await createBackup(join(root, "restore-source"), selectedBackup);
     const restore = await createIntent({ userData, operation: "restore", payload: { selectedBackup: published } });
-    const capturedRestore = await publishCapture(userData, restore.token);
+    const capturedRestore = await publishCapture(userData, restore);
     const resumedRestore = await prepareResumeIntent({ userData, expectedToken: capturedRestore.token, expectedRevision: capturedRestore.revision });
     assert.equal(resumedRestore.continuation.selectedBackup, published);
     assert.equal(resumedRestore.intent.state, "resuming");
@@ -130,7 +131,7 @@ test("restore and cheat continuations are captured once and require a fresh star
     await clearTerminalIntent({ userData, expectedToken: restore.token, startupConfirmed: true });
 
     const cheat = await createIntent({ userData, operation: "cheat", payload: { config: MAXIMUM_FUN_CHEATS } });
-    const capturedCheat = await publishCapture(userData, cheat.token);
+    const capturedCheat = await publishCapture(userData, cheat);
     const resumedCheat = await prepareResumeIntent({ userData, expectedToken: capturedCheat.token, expectedRevision: capturedCheat.revision });
     assert.deepEqual(resumedCheat.continuation.config, MAXIMUM_FUN_CHEATS);
     assert.equal(resumedCheat.intent.state, "resuming");
