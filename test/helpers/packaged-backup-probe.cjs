@@ -311,8 +311,14 @@ async function cleanupOwned(ownedPids, ownedPorts, exe, resultsRoot) {
       catch (error) { if (error.code === "ESRCH") { ownedPorts.delete(pid); continue; } }
       const port = ownedPorts.get(pid);
       if (!port) continue;
-      const script = `$p=Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; if ($p -and $p.ExecutablePath -eq '${exe.replaceAll("'", "''")}' -and $p.CommandLine -like '*--inspect-brk=127.0.0.1:${port}') { Stop-Process -Id ${pid} -Force }`;
-      await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, timeout: 10_000 });
+      const script = `$p=Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; if ($p -and $p.ExecutablePath -eq '${exe.replaceAll("'", "''")}' -and $p.CommandLine -like '*--inspect-brk=127.0.0.1:${port}') { Stop-Process -Id ${pid} -Force; [Console]::WriteLine('stopped') }`;
+      const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true, timeout: 10_000 });
+      if (!stdout.includes("stopped")) {
+        // Windows reused an exited owned PID for a process this probe did not launch; there is nothing of ours to stop.
+        if (resultsRoot) appendRecord(resultsRoot, { event: "cleanup-skipped-foreign-pid", pid, port });
+        ownedPorts.delete(pid);
+        continue;
+      }
       await waitForPidExit(pid, 10_000);
       if (resultsRoot) appendRecord(resultsRoot, { event: "cleanup-terminated-pid", pid, port, executable: exe });
       ownedPorts.delete(pid);
