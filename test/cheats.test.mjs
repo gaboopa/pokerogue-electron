@@ -127,6 +127,16 @@ test("cancel and backup failure leave the existing configuration untouched", asy
   assert.equal(await readFile(path, "utf8"), before);
 });
 
+test("a queued cold Backup defers cheat writes, then a verified continuation preserves usage ordering", async t => {
+  const path = await fixture(t); let relaunched = false;
+  const queued = await applyCheatConfiguration({ path, requested: MAXIMUM_FUN_CHEATS, confirm: async () => true, backup: async () => ({ deferred: true }), relaunch: async () => assert.fail() });
+  assert.deepEqual(queued, { applied: false, reason: "backup-pending" });
+  assert.deepEqual(await loadCheatDocument(path), emptyCheatDocument());
+  const resumed = await applyCheatConfiguration({ path, requested: MAXIMUM_FUN_CHEATS, backupCompleted: true, relaunch: async () => { relaunched = true; }, now: () => new Date("2026-08-01T12:00:00Z") });
+  assert.equal(resumed.applied, true); assert.equal(relaunched, true);
+  assert.deepEqual((await loadCheatDocument(path)).usage, { everEnabled: true, lastEnabledAt: "2026-08-01T12:00:00.000Z", lastAppliedAt: "2026-08-01T12:00:00.000Z", applyCount: 1 });
+});
+
 test("disabled-to-disabled updates need no backup but still persist and relaunch", async t => {
   const path = await fixture(t); let backups = 0; let relaunched = false;
   await applyCheatConfiguration({ path, requested: { ...NEUTRAL_CHEATS, xpMultiplier: 4 }, confirm: async () => assert.fail(), backup: async () => backups++, relaunch: async () => { relaunched = true; } });

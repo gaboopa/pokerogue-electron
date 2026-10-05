@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_ORIGIN, PRODUCT_NAME, UPDATE_REPOSITORY } from "./constants.mjs";
 import { BackupRestoreError, createBackup, restoreBackup, validateBackup } from "./backup.mjs";
+import { applyCheatConfiguration } from "./cheats.mjs";
 import { createCheatController } from "./cheat-main.mjs";
 import { keymapModifiedAt, loadKeymap, resetKeymap } from "./keymap-store.mjs";
 import { checkForUpdate, downloadVerified } from "./updater.mjs";
@@ -227,7 +228,7 @@ async function resumeColdBackupIntent() {
   await recoverStaleIntentLock({ userData, startupConfirmed: true });
   const current = await readCurrentIntent({ userData });
   if (!current) return;
-  if (current.operation !== "manual" && current.operation !== "update") return;
+  if (!["manual", "update", "restore", "cheat"].includes(current.operation)) return;
   if (current.state === "completed") {
     await clearTerminalIntent({ userData, expectedToken: current.token, startupConfirmed: true });
     await showMessageBox({ type: "info", title: current.operation === "update" ? "Update backup complete" : "Save backup complete", message: current.operation === "update" ? "The required cold Backup completed." : "Your saves were backed up.", detail: current.capturedBackupPath ?? "" });
@@ -247,6 +248,27 @@ async function resumeColdBackupIntent() {
       await showMessageBox({ type: "info", title: "Save backup complete", message: "Your saves were backed up.", detail: resumed.continuation.backupPath });
       return;
     }
+    if (current.operation === "restore") {
+      await writeRestoreMarker({ version: 1, status: "pending", selected: resumed.continuation.selectedBackup, safetyBackup: current.capturedBackupPath, coldToken: current.token });
+      await applyPendingRestore();
+      const marker = JSON.parse(await readFile(restoreMarkerPath(), "utf8").catch(error => error.code === "ENOENT" ? "null" : Promise.reject(error)));
+      if (!marker) await acknowledgeColdRestore(current.token);
+      else if (marker.status === "failed" && marker.recoveryRequired !== true) {
+        const latest = await readCurrentIntent({ userData });
+        if (latest?.token === current.token && latest.state === "resuming") {
+          const failed = await transitionIntent({ userData, expectedToken: latest.token, expectedRevision: latest.revision, nextState: "failed", failure: { code: "restore-failed", message: marker.error?.message ?? "Restore failed and rollback completed." } });
+          await clearTerminalIntent({ userData, expectedToken: failed.token, startupConfirmed: true });
+        }
+      }
+      return;
+    }
+    if (current.operation === "cheat") {
+      await applyCheatConfiguration({ path: paths().cheats, requested: resumed.continuation.config, backupCompleted: true, relaunch: async () => { app.relaunch(); app.quit(); } });
+      startupRestarting = true;
+      await transitionIntent({ userData, expectedToken: current.token, expectedRevision: resumed.intent.revision, nextState: "completed" });
+      await clearTerminalIntent({ userData, expectedToken: current.token, startupConfirmed: true });
+      return;
+    }
     const install = await showMessageBox({ type: "info", title: "Update downloaded", message: process.platform === "darwin" ? "Open the DMG, drag PokeRogue Offline into Applications, and replace the existing copy. macOS may ask you to approve this unsigned build in System Settings." : "Close the game and run the installer to update.", detail: resumed.continuation.installerPath, buttons: ["Open Update", "Later"], defaultId: 0, cancelId: 1 });
     if (install.response === 0) {
       const verified = await revalidateResumingUpdate({ userData, expectedToken: current.token, expectedRevision: resumed.intent.revision });
@@ -264,19 +286,22 @@ async function resumeColdBackupIntent() {
   }
 }
 
+async function acknowledgeColdRestore(token) {
+  const userData = paths().userData;
+  const current = await readCurrentIntent({ userData });
+  if (!current || current.token !== token || current.operation !== "restore" || current.state !== "resuming") return;
+  const completed = await transitionIntent({ userData, expectedToken: token, expectedRevision: current.revision, nextState: "completed" });
+  await clearTerminalIntent({ userData, expectedToken: token, startupConfirmed: true });
+  return completed;
+}
+
 async function chooseAndRestore() {
   const result = await showOpenDialog({ title: "Choose a save backup", defaultPath: paths().backupRoot, properties: ["openDirectory"] });
   if (result.canceled || !result.filePaths[0]) return { restored: false };
   const selected = result.filePaths[0];
   await validateBackup(selected);
-  const safetyBackup = await backupSaves(false);
-  const pending = join(paths().userData, "pending-restore.json");
-  await writeRestoreMarker({ version: 1, status: "pending", selected, safetyBackup });
-  await showMessageBox({ type: "info", title: "Restore ready", message: "The application will restart to restore this backup." });
-  startupRestarting = true;
-  app.relaunch();
-  app.quit();
-  return { restored: true };
+  const requested = await requestColdBackup("restore", { selectedBackup: selected });
+  return { restored: false, requested: requested.requested === true };
 }
 
 function restoreMarkerPath() {
@@ -348,7 +373,8 @@ function validRestoreMarker(marker) {
     ["pending", "applying", "failed", "completed"].includes(marker.status) &&
     (marker.status !== "failed" || typeof marker.recoveryRequired === "boolean") &&
     (marker.selected === undefined || typeof marker.selected === "string") &&
-    (marker.safetyBackup === undefined || typeof marker.safetyBackup === "string");
+    (marker.safetyBackup === undefined || typeof marker.safetyBackup === "string") &&
+    (marker.coldToken === undefined || (typeof marker.coldToken === "string" && /^[a-f0-9]{64}$/.test(marker.coldToken)));
 }
 
 async function applyPendingRestore() {
@@ -415,6 +441,7 @@ async function applyPendingRestore() {
   if (marker.status === "completed") {
     try { await rm(pending, { force: true }); }
     catch (error) { await showRestoreRecovery(marker, `The restore completed, but its request could not be removed: ${error.message}`, { completed: true }); }
+    if (marker.coldToken) await acknowledgeColdRestore(marker.coldToken);
     return;
   }
   if (marker.status === "failed") {
@@ -482,6 +509,7 @@ async function applyPendingRestore() {
   } catch (error) {
     await showRestoreRecovery({ ...marker, status: "completed" }, `The restore completed, but its request could not be removed: ${error.message}`, { completed: true });
   }
+  if (marker.coldToken) await acknowledgeColdRestore(marker.coldToken);
 }
 
 async function performUpdateCheck() {
@@ -600,14 +628,19 @@ app.whenReady().then(async () => {
     await showMessageBox({ type: "warning", title: "Backup continuation failed", message: "The Backup or Update could not safely continue.", detail: error.message });
     return;
   }
-  if (startupRecoveryBlocked) return;
+  if (startupRecoveryBlocked || startupRestarting) return;
   await reloadKeybindings();
   registerGameProtocol(protocol, gameRoot);
   installNetworkPolicy();
   cheatController = createCheatController({
     moduleRoot, configPath: paths().cheats, icon: windowIcon,
     getMainWindow: getLiveMainWindow,
-    backup: () => backupSaves(false),
+    backup: async config => {
+      const requested = await requestColdBackup("cheat", { config });
+      if (requested.requested || requested.journalPending) return { deferred: true };
+      if (requested.busy) throw new Error("Another Backup continuation is already in progress.");
+      throw new Error(requested.error ?? "The cold Backup could not be started.");
+    },
     relaunch: async () => { app.relaunch(); app.quit(); },
   });
   cheatController.registerIpc();

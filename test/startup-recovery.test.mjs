@@ -20,20 +20,22 @@ async function harness() {
   const bootstrap = join(root, "bootstrap.mjs");
   const electron = join(root, "electron.mjs");
   const backup = join(root, "backup.mjs");
+  const coordinator = join(root, "coordinator.mjs");
   const fsStub = join(root, "fs.mjs");
   const runner = join(root, "runner.mjs");
   await writeFile(loader, `export async function resolve(specifier, context, nextResolve) {
     if (specifier === "electron") return { url: new URL("./electron.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R05_MAIN_URL && specifier === "./backup.mjs") return { url: new URL("./backup.mjs", import.meta.url).href, shortCircuit: true };
+    if (context.parentURL === process.env.R05_MAIN_URL && specifier === "./backup-coordinator.mjs") return { url: new URL("./coordinator.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R05_MAIN_URL && specifier === "node:fs/promises") return { url: new URL("./fs.mjs", import.meta.url).href, shortCircuit: true };
     return nextResolve(specifier, context);
   }`);
   await writeFile(bootstrap, `import { register } from "node:module"; register(${JSON.stringify(pathToFileURL(loader).href)});`);
   await writeFile(electron, `let resolveStartup, rejectStartup, signalRestore, releaseRestore;
-    const state = { windows: 0, urls: [], dialogs: [], quits: 0, opened: [], listeners: {}, startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), restoreStarted: new Promise(resolve => { signalRestore = resolve; }), restoreRelease: new Promise(resolve => { releaseRestore = resolve; }) };
+    const state = { windows: 0, urls: [], dialogs: [], quits: 0, opened: [], listeners: {}, onceListeners: {}, startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), restoreStarted: new Promise(resolve => { signalRestore = resolve; }), restoreRelease: new Promise(resolve => { releaseRestore = resolve; }) };
     state.signalRestoreStarted = () => signalRestore(); state.releaseRestore = () => releaseRestore();
     globalThis.__r05 = state;
-    export const app = { isPackaged: false, setName() {}, getPath(n) { return n === "userData" ? process.env.R05_USER_DATA : process.env.TEMP; }, getVersion() { return "test"; }, whenReady() { return { then(callback) { Promise.resolve().then(callback).then(resolveStartup, rejectStartup); return state.startupPromise; } }; }, on(name, fn) { state.listeners[name] = fn; }, relaunch() { state.relaunch = true; }, quit() { state.quits++; } };
+    export const app = { isPackaged: false, setName() {}, getAppPath() { return process.env.R05_APP_PATH; }, getPath(n) { return n === "userData" ? process.env.R05_USER_DATA : process.env.TEMP; }, getVersion() { return "test"; }, whenReady() { return { then(callback) { Promise.resolve().then(callback).then(resolveStartup, rejectStartup); return state.startupPromise; } }; }, on(name, fn) { state.listeners[name] = fn; }, once(name, fn) { (state.onceListeners[name] ??= []).push(fn); }, removeListener(name, fn) { state.onceListeners[name] = (state.onceListeners[name] ?? []).filter(item => item !== fn); }, relaunch() { state.relaunch = true; }, quit() { state.quits++; const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }; const callbacks = state.onceListeners["will-quit"] ?? []; delete state.onceListeners["will-quit"]; for (const fn of callbacks) fn(event); } };
     export class BrowserWindow { constructor() { state.windows++; this.webContents = { setWindowOpenHandler() {}, on() {}, send() {}, toggleDevTools() {}, session: { flushStorageData: async () => {} } }; } static getAllWindows() { return Array.from({ length: state.windows }); } isDestroyed() { return false; } isVisible() { return true; } isFullScreen() { return false; } show() {} focus() {} hide() {} once() {} on() {} async loadURL(url) { state.urls.push(url); } async loadFile() {} reload() {} setFullScreen() {} }
     export const dialog = { async showMessageBox(...args) { const o = args.at(-1); state.dialogs.push({ title: o.title, message: o.message, detail: o.detail, buttons: o.buttons, cancelId: o.cancelId }); const choice = process.env.R05_DIALOG_RESPONSE ?? "default"; return { response: choice === "cancel" ? o.cancelId : choice === "default" ? o.defaultId : Number(choice) }; }, async showOpenDialog() { return { canceled: false, filePaths: [process.env.R05_NEW_SELECTION || ""] }; }, showErrorBox(title, message) { state.dialogs.push({ title, message }); } };
     export const ipcMain = { handle() {}, on() {} };
@@ -58,6 +60,15 @@ async function harness() {
       if (mode === "restoredCleanup") { const recoveryPath = rollbackPath || join(userData, ".restore-rollback-cleanup"); await mkdir(recoveryPath, { recursive: true }); await writeFile(join(recoveryPath, "preserved"), "original"); throw new BackupRestoreError("Restore completed, but recovery cleanup failed", { restored: true, recoveryPath }); }
       if (mode === "incomplete") { const recoveryPath = rollbackPath || join(userData, ".restore-rollback-test"); await mkdir(recoveryPath, { recursive: true }); await writeFile(join(recoveryPath, "preserved"), "original"); throw new BackupRestoreError("rollback failed", { recoveryRequired: true, recoveryPath }); }
     }`);
+  await writeFile(coordinator, `let current = null;
+    export const state = globalThis.__r05Coordinator = { created: [], transitions: [] };
+    export async function recoverStaleIntentLock() { return false; }
+    export async function readCurrentIntent() { return current; }
+    export async function createIntent(input) { current = { token: "${"a".repeat(64)}", operation: input.operation, state: "requested", revision: 0, payload: input.payload, capturedBackupPath: null, failure: null }; state.created.push(current); return current; }
+    export async function transitionIntent(input) { current = { ...current, state: input.nextState, revision: current.revision + 1, failure: input.failure ?? null }; state.transitions.push(current); return current; }
+    export async function prepareResumeIntent() { throw new Error("The worker continuation is not run in this recovery harness"); }
+    export async function revalidateResumingUpdate() { throw new Error("Unexpected Update continuation"); }
+    export async function clearTerminalIntent() { current = null; return true; }`);
   await writeFile(fsStub, `import * as fs from "node:fs/promises";
     export const mkdir = fs.mkdir;
     export const readFile = async (p, ...a) => { if (process.env.R05_FAIL_READ && String(p).endsWith("pending-restore.json")) throw Object.assign(new Error("marker read failed"), { code: "EACCES" }); return fs.readFile(p, ...a); };
@@ -69,14 +80,14 @@ async function harness() {
     async function bounded(promise, label) { let timer; try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(label + " timeout")), 5000); })]); } finally { clearTimeout(timer); } }
     await import(process.env.R05_MAIN_URL); const state = globalThis.__r05;
     if (process.env.R05_DELAY_RESTORE) { await bounded(state.restoreStarted, "restore start"); state.listeners.activate?.(); state.windowsDuringRestore = state.windows; state.releaseRestore(); }
-    await bounded(state.startupPromise, "startup"); if (!process.env.R05_DELAY_RESTORE) state.listeners.activate?.(); await writeFile(process.env.R05_RESULT, JSON.stringify(state));`);
+    await bounded(state.startupPromise, "startup"); if (!process.env.R05_DELAY_RESTORE) state.listeners.activate?.(); state.coordinator = globalThis.__r05Coordinator; await writeFile(process.env.R05_RESULT, JSON.stringify(state));`);
   return { root, bootstrap, runner };
 }
 
 async function launch(h, userData, extra = {}) {
   const resultPath = join(userData, `result-${Math.random()}.json`);
   const mainUrl = pathToFileURL(join(repo, "src", "main.mjs")).href;
-  const result = spawnSync(process.execPath, ["--import", pathToFileURL(h.bootstrap).href, h.runner], { encoding: "utf8", timeout: 10000, env: { ...process.env, R05_MAIN_URL: mainUrl, R05_USER_DATA: userData, R05_RESULT: resultPath, R05_ATTEMPTS: join(userData, "attempts.log"), R05_SAFETY_BACKUP: join(userData, "Save Backups", "safety"), ...extra } });
+  const result = spawnSync(process.execPath, ["--import", pathToFileURL(h.bootstrap).href, h.runner], { encoding: "utf8", timeout: 10000, env: { ...process.env, R05_MAIN_URL: mainUrl, R05_APP_PATH: repo, R05_USER_DATA: userData, R05_RESULT: resultPath, R05_ATTEMPTS: join(userData, "attempts.log"), R05_SAFETY_BACKUP: join(userData, "Save Backups", "safety"), ...extra } });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   return JSON.parse(await readFile(resultPath, "utf8"));
 }
@@ -301,7 +312,7 @@ test("completion write errors preserve an applying marker and never replay a suc
   assert.deepEqual(await attempts(userData), [selected]);
 });
 
-test("malformed pending marker is archived as failed and allows choosing a fresh Backup", async () => {
+test("malformed pending marker is recorded failed before a fresh cold restore is queued", async () => {
   const h = await harness();
   const userData = join(h.root, "user");
   await mkdir(userData, { recursive: true });
@@ -311,9 +322,11 @@ test("malformed pending marker is archived as failed and allows choosing a fresh
   assert.equal(result.relaunch, true);
   assert.equal(result.windows, 0, "a scheduled restart must not create a window in the old process");
   assert.deepEqual(result.urls, []);
-  const replaced = JSON.parse(await readFile(markerPath, "utf8"));
-  assert.equal(replaced.status, "pending");
-  assert.equal(replaced.selected, join(h.root, "fresh-backup"));
+  const preservedFailure = JSON.parse(await readFile(markerPath, "utf8"));
+  assert.equal(preservedFailure.status, "failed");
+  assert.equal(preservedFailure.recoveryRequired, false);
+  assert.equal(result.coordinator.created[0].operation, "restore");
+  assert.equal(result.coordinator.created[0].payload.selectedBackup, join(h.root, "fresh-backup"));
 });
 
 test("failed recovery-copy scans make malformed, invalid, and legacy requests unknown", async () => {
@@ -344,6 +357,8 @@ test("failed marker writes allow choosing fresh only when the recovery scan is c
   const clearResult = await launch(clear, clearUserData, { R05_FAIL_FAILED_WRITE: "1", R05_DIALOG_RESPONSE: "2", R05_NEW_SELECTION: selected });
   assert.equal(clearResult.relaunch, true);
   assert.ok(clearResult.dialogs[0].buttons.includes("Choose another Backup"));
+  assert.equal(clearResult.coordinator.created[0].operation, "restore");
+  assert.equal(clearResult.coordinator.created[0].payload.selectedBackup, selected);
 
   const retained = await harness();
   const retainedUserData = join(retained.root, "user");

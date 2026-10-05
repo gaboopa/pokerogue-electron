@@ -14,6 +14,7 @@ import {
   transitionIntent,
 } from "../src/backup-coordinator.mjs";
 import { createBackup } from "../src/backup.mjs";
+import { MAXIMUM_FUN_CHEATS } from "../src/cheats.mjs";
 
 async function withProfile(run) {
   const root = await mkdtemp(join(tmpdir(), "pokerogue-backup-flow-"));
@@ -109,5 +110,37 @@ test("missing, tampered, stale, and arbitrary Update installer paths fail closed
     await assert.rejects(prepareResumeIntent({ userData, expectedToken: captured.token, expectedRevision: captured.revision + 1 }), /revision|state|resuming/i);
     await rm(join(updateRoot, "setup.exe"));
     await assert.rejects(revalidateResumingUpdate({ userData, expectedToken: captured.token, expectedRevision: resumed.intent.revision }), /unavailable/i);
+  });
+});
+
+test("restore and cheat continuations are captured once and require a fresh startup claim", async () => {
+  await withProfile(async ({ root, userData }) => {
+    const selectedBackup = join(root, "selected-backup");
+    await mkdir(join(root, "restore-source", "Local Storage"), { recursive: true });
+    await writeFile(join(root, "restore-source", "Local Storage", "save.json"), "selected save");
+    await mkdir(selectedBackup);
+    const published = await createBackup(join(root, "restore-source"), selectedBackup);
+    const restore = await createIntent({ userData, operation: "restore", payload: { selectedBackup: published } });
+    const capturedRestore = await publishCapture(userData, restore.token);
+    const resumedRestore = await prepareResumeIntent({ userData, expectedToken: capturedRestore.token, expectedRevision: capturedRestore.revision });
+    assert.equal(resumedRestore.continuation.selectedBackup, published);
+    assert.equal(resumedRestore.intent.state, "resuming");
+    await assert.rejects(prepareResumeIntent({ userData, expectedToken: capturedRestore.token, expectedRevision: capturedRestore.revision }), /resuming|state|revision/i);
+    await transitionIntent({ userData, expectedToken: restore.token, expectedRevision: resumedRestore.intent.revision, nextState: "failed", failure: { code: "continuation-failed", message: "test failure" } });
+    await clearTerminalIntent({ userData, expectedToken: restore.token, startupConfirmed: true });
+
+    const cheat = await createIntent({ userData, operation: "cheat", payload: { config: MAXIMUM_FUN_CHEATS } });
+    const capturedCheat = await publishCapture(userData, cheat.token);
+    const resumedCheat = await prepareResumeIntent({ userData, expectedToken: capturedCheat.token, expectedRevision: capturedCheat.revision });
+    assert.deepEqual(resumedCheat.continuation.config, MAXIMUM_FUN_CHEATS);
+    assert.equal(resumedCheat.intent.state, "resuming");
+  });
+});
+
+test("malformed restore and cheat continuation payloads fail before claiming resume", async () => {
+  await withProfile(async ({ root, userData }) => {
+    const selectedBackup = join(root, "missing-backup");
+    await assert.rejects(createIntent({ userData, operation: "restore", payload: { selectedBackup } }), /unavailable|ENOENT/i);
+    await assert.rejects(createIntent({ userData, operation: "cheat", payload: { config: { ...MAXIMUM_FUN_CHEATS, unknown: true } } }), /normalized|schema/i);
   });
 });

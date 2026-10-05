@@ -92,12 +92,13 @@ export async function writeCheatDocument(path, document) {
   }
 }
 
-export async function applyCheatConfiguration({ path, requested, confirm, backup, relaunch, now = () => new Date() }) {
+export async function applyCheatConfiguration({ path, requested, confirm, backup, relaunch, backupCompleted = false, now = () => new Date() }) {
   const current = await loadCheatDocument(path);
   const config = validateCheatConfig(requested);
-  if (current.config.enabled || config.enabled) {
+  if (!backupCompleted && (current.config.enabled || config.enabled)) {
     if (!await confirm(current.config, config)) return { applied: false, reason: "cancelled" };
-    await backup();
+    const result = await backup(config);
+    if (result?.deferred === true) return { applied: false, reason: "backup-pending" };
   }
   const timestamp = now().toISOString();
   const document = {
