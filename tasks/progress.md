@@ -3,7 +3,7 @@
 Goal: complete all updates in tasks/plan.md. The user authorized Luna dispatch and selected validation-only GitHub Actions for macOS builds.
 
 Primary integration branch: codex/offline-review-updates.
-Latest combined verification: npm test, 145 passed, 0 failed, 0 skipped on Windows x64 with Node v24.18.0 and Electron 42.11.10, after manual Backup and Update cold continuations integrated with their review corrections.
+Latest combined verification: npm test, 154 passed, 0 failed, 0 skipped on Windows x64 with Node v24.18.0 and Electron 42.11.10, after Restore and Cheat cold continuations and their recovery corrections integrated.
 This is not native release clearance.
 
 | Task | Current evidence |
@@ -25,14 +25,15 @@ This is not native release clearance.
 | R16 #33 | Integrated 8bdff68/6ba9ab6/5d66719; independent stale-token reproduction rejected; cross-process ownership and explicit dead-owner recovery verified; issue closed |
 | R17 #34 | Production bootstrap/worker integrated db1b4bd; three native Windows rounds and primary 134/134 suite passed; issue closed |
 | R18 #35 | Integrated 7a62757/73aa2fb/6f6eeb8; root combined 145/145, installer-approval mutation caught, stale Update token rejected, native restart/veto routing checked |
-| R19-R20 #36-#37 | Restore/cheat continuations and actual packaged proof remain open and sequential |
+| R19 #36 | Integrated 8830fdd/676a609/3ac9475; persistent replacement/cancellation regression and root guard mutation verified; issue closed |
+| R20 #37 | One Luna worker validating the actual stock Windows package; platform release gates remain open |
 | S01, S02a, S02b, S03, S04, S05, S06a, S06b, P01 | All nine integrated and issues #21-#29 closed; combined 119/119 passing |
 
-Dispatch policy after the usage-limit interruption: one active Luna worker, with focused verification and primary combined checks at integration checkpoints. R16-R18 are complete. R19 #36 is the next slice, with a fresh focused Luna session. Other sessions remain stopped. Read current agent/tool status and Git state before assuming a worker remains live.
+Dispatch policy after the usage-limit interruption: one active Luna worker, with focused verification and primary combined checks at integration checkpoints. R16-R19 are complete. R20 #37 owns the next slice in a fresh focused Luna session. Other sessions remain stopped. Read current agent/tool status and Git state before assuming a worker remains live.
 
 R19 review checkpoint: candidate 5166246 is not integrated. Worker verification passed focused tests 37/37, R05 startup recovery 16/16, and full npm test 152/152 with zero skips. Review requires durable cheat completion before quitting, explicit restore restart/cancel approval, and coverage for fresh restore selection with an existing cold intent and R05 recovery marker. The same single Luna session is correcting these issues. The sixth file, the existing startup-recovery test, is in scope to preserve recovery coverage. Primary verification remains 145/145 until the corrected candidate is reviewed and integrated.
 
-Resumption, 2026-10-05: no previous child agent remained live. R19's corrective edits are preserved, uncommitted, in main and the two existing orchestration/recovery tests; their final verification is pending. A fresh single Luna session, cold_safety_r19_resume, is finishing them in the same worktree. The integrated branch remains at 145 passing tests; packaged and platform validation remain pending.
+Resumption, 2026-10-05: a fresh single Luna session finished R19 in the reused cold-capture worktree. Root reviewed its persistent three-launch recovery proof, removed the safe-failed cancellation guard in an isolated snapshot, and observed the required regression fail. Original bytes were restored. The primary suite then passed 154/154 in 19.2 seconds with zero skips. #36 is closed. One fresh Luna session now owns #37 on codex/packaged-proof-r20. Its explicit stock package comes from primary source commit 3ac94754eef02e56d6102699b95b3d8736029688 with the previously built pinned game; app.asar SHA-256 is 09a3b55f0787a56e1a2db538131e999496b2f3dffacb216920de1d7bf7b9bfe4. The user explicitly authorized completing, merging, and pushing all updates. Platform CI and hands-on release evidence remain pending.
 
 R18 review checkpoint: candidate 80d89b1 is not integrated. Its focused coordinator tests passed 4/4, but the full candidate suite passed 137/138. Review found a worker argument mismatch, missing main-flow behavioral coverage, and continuation ownership/failure handling that needs correction. The same single Luna session is repairing these issues. The scope includes a fourth file, the existing window-lifecycle test, to replace its live-copy expectation while retaining destroyed-window and cancellation checks. The primary branch remains at the verified 134/134 checkpoint.
 
