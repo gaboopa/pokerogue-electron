@@ -113,6 +113,17 @@ jobs:
           $validation | node --input-type=module - release/release-manifest.json $installer
           if ($LASTEXITCODE -ne 0) { throw 'Generated release manifest did not validate against the built artifact' }
 
+      - name: Exercise cold Backup flows through the unchanged packaged executable
+        run: |
+          $env:POKEROGUE_R20_EXE = (Resolve-Path -LiteralPath 'release/cache/win-x64/win-unpacked/PokeRogue Offline.exe').Path
+          $env:POKEROGUE_R20_SHA256 = (Get-FileHash -LiteralPath $env:POKEROGUE_R20_EXE -Algorithm SHA256).Hash.ToLowerInvariant()
+          $asar = Join-Path (Split-Path -Parent $env:POKEROGUE_R20_EXE) 'resources/app.asar'
+          $env:POKEROGUE_R20_ASAR_SHA256 = (Get-FileHash -LiteralPath $asar -Algorithm SHA256).Hash.ToLowerInvariant()
+          $env:POKEROGUE_R20_SOURCE_COMMIT = $env:GITHUB_SHA
+          $env:POKEROGUE_R20_RESULTS = Join-Path $env:RUNNER_TEMP 'pokerogue-packaged-validation'
+          node --test test/packaged-backup.integration.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged cold Backup validation failed' }
+
       - name: Run fresh hosted install, upgrade, and uninstall checks
         run: |
           $version = node -p "require('./package.json').version"
@@ -129,5 +140,18 @@ jobs:
             PokeRogue-Electron/release/release-manifest.json
             ${{ runner.temp }}/pokerogue-windows-validation-${{ github.run_id }}-${{ github.run_attempt }}/windows-install-validation.json
           compression-level: 0
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Retain compact native evidence independently of the installer
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-evidence-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/pokerogue-packaged-validation/**/*.json
+            ${{ runner.temp }}/pokerogue-packaged-validation/**/*.jsonl
+            ${{ runner.temp }}/pokerogue-windows-validation-${{ github.run_id }}-${{ github.run_attempt }}/windows-install-validation.json
+            PokeRogue-Electron/release/release-manifest.json
           retention-days: 7
           if-no-files-found: warn
