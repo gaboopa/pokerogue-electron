@@ -80,6 +80,8 @@ When an update is available, the app:
 3. backs up your saves;
 4. asks before opening the installer.
 
+Download progress is shown on the taskbar or Dock icon, and a download that stops receiving data is cancelled so you can retry.
+
 Gameplay remains available if you are offline or GitHub cannot be reached.
 
 ## Troubleshooting

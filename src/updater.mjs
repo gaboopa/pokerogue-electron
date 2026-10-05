@@ -40,10 +40,10 @@ export function validateReleaseManifest(value, expectedPlatform, expectedArch) {
 
 export async function checkForUpdate(repository, currentVersion, platform, arch) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error("Invalid update repository");
-  const release = await (await fetchAllowed(`https://api.github.com/repos/${repository}/releases/latest`)).json();
+  const release = await (await fetchAllowed(`https://api.github.com/repos/${repository}/releases/latest`, { signal: AbortSignal.timeout(30000) })).json();
   const manifestAsset = release.assets?.find(asset => asset.name === "release-manifest.json");
   if (!manifestAsset) throw new Error("Release does not include release-manifest.json");
-  const raw = await (await fetchAllowed(manifestAsset.browser_download_url)).json();
+  const raw = await (await fetchAllowed(manifestAsset.browser_download_url, { signal: AbortSignal.timeout(30000) })).json();
   const result = validateReleaseManifest(raw, platform, arch);
   return { ...result, available: compareVersions(raw.version, currentVersion) > 0 };
 }
@@ -82,6 +82,7 @@ export async function downloadVerified(artifact, destinationRoot, fileOperations
   const statFile = fileOperations.stat ?? stat;
   const renameFile = fileOperations.rename ?? rename;
   const writeStreamFor = fileOperations.writeStream ?? (handle => handle.createWriteStream());
+  const stallTimeoutMs = fileOperations.stallTimeoutMs ?? 60000;
   await mkdir(destinationRoot, { recursive: true });
   const finalPath = resolve(destinationRoot, basename(new URL(artifact.downloadUrl).pathname));
 
@@ -97,10 +98,18 @@ export async function downloadVerified(artifact, destinationRoot, fileOperations
     const partialPath = `${finalPath}.${randomUUID()}.partial`;
     let ownsPartial = false;
     let fileHandle;
+    const controller = new AbortController();
+    let stallTimer;
+    const armStall = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => controller.abort(new Error(`Update download stalled: no data received for ${stallTimeoutMs / 1000} seconds`)), stallTimeoutMs);
+    };
     try {
-      const response = await fetchAllowed(artifact.downloadUrl, { headers: { accept: "application/octet-stream" } });
+      armStall();
+      const response = await fetchAllowed(artifact.downloadUrl, { headers: { accept: "application/octet-stream" }, signal: controller.signal });
       const hash = createHash("sha256");
-      const transform = new TransformStream({ transform(chunk, controller) { hash.update(chunk); controller.enqueue(chunk); } });
+      let received = 0;
+      const transform = new TransformStream({ transform(chunk, out) { armStall(); hash.update(chunk); received += chunk.byteLength; fileOperations.onProgress?.(received, artifact.size); out.enqueue(chunk); } });
       fileHandle = await open(partialPath, "wx");
       ownsPartial = true;
       await pipeline(response.body.pipeThrough(transform), writeStreamFor(fileHandle));
@@ -112,6 +121,7 @@ export async function downloadVerified(artifact, destinationRoot, fileOperations
       ownsPartial = false;
       return finalPath;
     } finally {
+      clearTimeout(stallTimer);
       if (fileHandle) await fileHandle.close().catch(() => {});
       if (ownsPartial) await rm(partialPath, { force: true });
     }

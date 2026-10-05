@@ -176,3 +176,39 @@ test("failed cleanup leaves another destination's partial intact and does not bl
     assert.deepEqual(await partialFiles(secondRoot), []);
   });
 });
+
+test("a stalled download rejects with the stall message and leaves no partial", async () => {
+  await withDownloadRoot(async (root, setFetch) => {
+    setFetch(async (_request, init) => new Response(new ReadableStream({ start(controller) { controller.enqueue(Buffer.from("AAAA")); init.signal.addEventListener("abort", () => controller.error(init.signal.reason)); } })));
+    await assert.rejects(downloadVerified(artifact("AAAABBBB"), root, { stallTimeoutMs: 50 }), /Update download stalled: no data received for 0\.05 seconds/);
+    assert.deepEqual(await partialFiles(root), []);
+  });
+});
+
+test("progress reports increasing byte counts ending at the full size", async () => {
+  await withDownloadRoot(async (root, setFetch) => {
+    setFetch(async () => new Response(new ReadableStream({ start(controller) { for (const part of ["AA", "BB", "CC"]) controller.enqueue(Buffer.from(part)); controller.close(); } })));
+    const calls = [];
+    await downloadVerified(artifact("AABBCC"), root, { onProgress: (received, total) => calls.push([received, total]) });
+    assert.equal(calls.length > 0, true);
+    assert.deepEqual(calls.map(call => call[0]), [...calls.map(call => call[0])].sort((a, b) => a - b));
+    assert.equal(new Set(calls.map(call => call[0])).size, calls.length);
+    assert.deepEqual(calls.at(-1), [6, 6]);
+  });
+});
+
+test("a slow download that keeps delivering chunks outlives the stall timeout", async () => {
+  await withDownloadRoot(async (root, setFetch) => {
+    setFetch(async () => new Response(new ReadableStream({
+      async start(controller) {
+        for (const part of ["AA", "BB", "CC", "DD", "EE"]) {
+          controller.enqueue(Buffer.from(part));
+          await new Promise(done => setTimeout(done, 40));
+        }
+        controller.close();
+      }
+    })));
+    const path = await downloadVerified(artifact("AABBCCDDEE"), root, { stallTimeoutMs: 100 });
+    assert.equal(await readFile(path, "utf8"), "AABBCCDDEE");
+  });
+});

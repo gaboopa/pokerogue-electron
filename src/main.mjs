@@ -550,7 +550,18 @@ async function performUpdateCheck() {
     }
     const answer = await showMessageBox({ type: "info", title: "Update available", message: `Version ${result.manifest.version} is available.`, detail: "Downloading requires a restart to make the cold Backup before the installer can be opened. Continue?", buttons: ["Download and Restart", "Cancel"], defaultId: 0, cancelId: 1 });
     if (answer.response !== 0) return { available: true, downloaded: false };
-    await downloadVerified(result.artifact, paths().downloadRoot);
+    let lastPercent = -1;
+    const onProgress = (received, total) => {
+      const percent = Math.floor(received / total * 100);
+      if (percent === lastPercent) return;
+      lastPercent = percent;
+      getLiveMainWindow()?.setProgressBar(received / total);
+    };
+    try {
+      await downloadVerified(result.artifact, paths().downloadRoot, { onProgress });
+    } finally {
+      getLiveMainWindow()?.setProgressBar(-1);
+    }
     const requested = await requestColdBackup("update", { manifest: result.manifest, platform, arch: process.arch }, true);
     keepReservation = requested.requested || requested.journalPending;
     return { available: true, downloaded: true };

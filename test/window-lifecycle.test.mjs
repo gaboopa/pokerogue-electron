@@ -68,6 +68,7 @@ async function createHarness() {
       destroy() { this.close(); }
       reload() { this.reloads++; }
       setFullScreen(value) { this.fullscreen = value; }
+      setProgressBar() {}
       async loadURL(url) { this.url = url; state.urls ??= []; state.urls.push(url); if (state.rejectLoadFor === this.id) return new Promise((resolve, reject) => { state.rejectLoad = reject; }); }
       async loadFile(path) { this.file = path; }
     }
