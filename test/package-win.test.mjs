@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createWindowsBuildConfig,
+  packageWindows,
 } from "../scripts/package-win.mjs";
 import { assertDistributableArtifactName } from "../src/release-contract.mjs";
 import {
@@ -14,7 +15,7 @@ import {
   isSuccessfulRobocopyExitCode,
   prepareWindowsCache,
 } from "../scripts/package-win-cache.mjs";
-import { createBenchmarkConfig, selectBenchmarkCandidate } from "../scripts/benchmark-win-packaging.mjs";
+import { createBenchmarkConfig, runBenchmarkVariant, selectBenchmarkCandidate } from "../scripts/benchmark-win-packaging.mjs";
 import { shouldStageGamePath } from "../scripts/staging-policy.mjs";
 
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -176,6 +177,21 @@ test("staged cache is reused, forced refresh rebuilds, and incomplete cache is r
   await prepareWindowsCache({ root, baseBuild: buildConfig, npmRebuild: true, force: true, buildFn, copyFn: mockStagingCopy });
   assert.equal(calls.length, 3);
   assert.equal(calls[2].config.npmRebuild, true);
+  assert.ok(calls.every(options => options.publish === "never"));
+});
+
+test("Windows installer and benchmark builds explicitly disable automatic publishing", async t => {
+  const { root, buildConfig } = await createCacheFixture(t);
+  await packageWindows("smoke", { root, baseBuild: buildConfig, buildFn: async options => {
+    assert.equal(options.publish, "never");
+    return [];
+  } });
+  await runBenchmarkVariant({ root, baseBuild: buildConfig, kind: "zip", prepackagedPath: root, buildFn: async options => {
+    assert.equal(options.publish, "never");
+    const artifact = join(root, "release", "benchmark", "zip", "fixture.exe");
+    await writeFixtureFile(root, "release/benchmark/zip/fixture.exe");
+    return [artifact];
+  } });
 });
 
 test("failed cache preparation leaves no valid marker", async t => {

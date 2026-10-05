@@ -68,6 +68,7 @@ export async function packageWindows(mode, { baseBuild, root = wrapperRoot, buil
 
   const installerStartedAt = performance.now();
   const artifacts = await buildFn({
+    publish: "never",
     projectDir: root,
     targets: Platform.WINDOWS.createTarget("nsis", Arch.x64),
     config,

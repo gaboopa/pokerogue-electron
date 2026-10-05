@@ -237,6 +237,7 @@ export async function prepareWindowsCache({
     config.extraResources = null;
     config.directories = { ...config.directories, output: tempRoot };
     await buildFn({
+      publish: "never",
       projectDir: root,
       targets: Platform.WINDOWS.createTarget("dir", Arch.x64),
       config,

@@ -61,6 +61,7 @@ export async function runBenchmarkVariant({ baseBuild, kind, prepackagedPath, ca
   await rm(join(root, ...config.directories.output.split("/")), { recursive: true, force: true });
   const startedAt = performance.now();
   const artifacts = await buildFn({
+    publish: "never",
     projectDir: root,
     targets: Platform.WINDOWS.createTarget("nsis", Arch.x64),
     config,
