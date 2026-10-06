@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, Menu, protocol, session, shell } from "elec
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { APP_ORIGIN, AUTOMATIC_BACKUPS_KEPT, PRODUCT_NAME, UPDATE_REPOSITORY } from "./constants.mjs";
+import { APP_ORIGIN, AUTOMATIC_BACKUPS_KEPT, BACKUP_TOKEN_PATTERN, PRODUCT_NAME, UPDATE_REPOSITORY } from "./constants.mjs";
 import { pruneAutomaticBackups, pruneUpdateDownloads } from "./retention.mjs";
 import { BackupRestoreError, restoreBackup, validateBackup } from "./backup.mjs";
 import { applyCheatConfiguration } from "./cheats.mjs";
@@ -44,6 +44,18 @@ function showMessageBox(options) {
 function showOpenDialog(options) {
   const parent = getLiveMainWindow();
   return parent ? dialog.showOpenDialog(parent, options) : dialog.showOpenDialog(options);
+}
+
+function showBackupAlreadyInProgress() {
+  return showMessageBox({ type: "info", title: "Backup already in progress", message: "Another Backup or Update continuation already owns the cold capture request." });
+}
+
+function showColdBackupComplete(intent, detail) {
+  return showMessageBox({ type: "info", title: intent.operation === "update" ? "Update backup complete" : "Save backup complete", message: intent.operation === "update" ? "The required cold Backup completed." : "Your saves were backed up.", detail });
+}
+
+function showColdBackupFailed(intent, detail) {
+  return showMessageBox({ type: "warning", title: intent.operation === "update" ? "Update backup did not complete" : "Backup not completed", message: intent.operation === "update" ? "The Update was downloaded, but its required cold Backup did not complete." : "The requested Backup did not complete.", detail });
 }
 
 function paths() {
@@ -113,7 +125,7 @@ async function failColdIntent(intent, message, code = "continuation-failed", { s
   if (!latest || latest.token !== intent.token) throw new Error("The Backup request changed before its failure could be recorded");
   if (latest.state === "completed") {
     if (startupConfirmed) await clearTerminalIntent({ userData: paths().userData, expectedToken: latest.token, startupConfirmed: true });
-    await showMessageBox({ type: "info", title: latest.operation === "update" ? "Update backup complete" : "Save backup complete", message: latest.operation === "update" ? "The required cold Backup completed." : "Your saves were backed up.", detail: latest.capturedBackupPath ?? "" });
+    await showColdBackupComplete(latest, latest.capturedBackupPath ?? "");
     if (startupConfirmed) backupRequestActive = false;
     return;
   }
@@ -125,7 +137,7 @@ async function failColdIntent(intent, message, code = "continuation-failed", { s
   }
   if (latest.state !== "failed") throw new Error(`Could not record Backup failure from state ${latest.state}`);
   if (startupConfirmed) await clearTerminalIntent({ userData: paths().userData, expectedToken: latest.token, startupConfirmed: true });
-  await showMessageBox({ type: "warning", title: latest.operation === "update" ? "Update backup did not complete" : "Backup not completed", message: latest.operation === "update" ? "The Update was downloaded, but its required cold Backup did not complete." : "The requested Backup did not complete.", detail: `${String(message)}${startupConfirmed ? "" : " Restart the application before requesting another Backup."}` });
+  await showColdBackupFailed(latest, `${String(message)}${startupConfirmed ? "" : " Restart the application before requesting another Backup."}`);
   if (startupConfirmed) backupRequestActive = false;
 }
 
@@ -138,7 +150,7 @@ function reportColdIntentFailure(error) {
 
 async function requestColdBackup(operation, payload, reserved = false) {
   if (backupRequestActive && !reserved) {
-    await showMessageBox({ type: "info", title: "Backup already in progress", message: "Another Backup or Update continuation already owns the cold capture request." });
+    await showBackupAlreadyInProgress();
     return { requested: false, busy: true };
   }
   backupRequestActive = true;
@@ -198,7 +210,7 @@ async function requestColdBackup(operation, payload, reserved = false) {
 
 async function requestManualBackup() {
   if (backupRequestActive) {
-    await showMessageBox({ type: "info", title: "Backup already in progress", message: "Another Backup or Update continuation already owns the cold capture request." });
+    await showBackupAlreadyInProgress();
     return { requested: false, busy: true };
   }
   if (backupRequestPromise) return backupRequestPromise;
@@ -230,12 +242,12 @@ async function resumeColdBackupIntent() {
   }
   if (current.state === "completed") {
     await clearTerminalIntent({ userData, expectedToken: current.token, startupConfirmed: true });
-    await showMessageBox({ type: "info", title: current.operation === "update" ? "Update backup complete" : "Save backup complete", message: current.operation === "update" ? "The required cold Backup completed." : "Your saves were backed up.", detail: current.capturedBackupPath ?? "" });
+    await showColdBackupComplete(current, current.capturedBackupPath ?? "");
     return;
   }
-  if (["cancelled", "failed"].includes(current.state)) {
+  if (current.state === "failed") {
     await clearTerminalIntent({ userData, expectedToken: current.token, startupConfirmed: true });
-    await showMessageBox({ type: current.state === "failed" ? "warning" : "info", title: current.operation === "update" ? "Update backup did not complete" : "Backup not completed", message: current.operation === "update" ? "The Update was downloaded, but its required cold Backup did not complete." : "The requested Backup did not complete.", detail: current.failure?.message ?? "The operation was cancelled." });
+    await showColdBackupFailed(current, current.failure?.message ?? "The operation was cancelled.");
     return;
   }
   try {
@@ -244,7 +256,7 @@ async function resumeColdBackupIntent() {
     if (current.operation === "manual") {
       await transitionIntent({ userData, expectedToken: current.token, expectedRevision: resumed.intent.revision, nextState: "completed" });
       await clearTerminalIntent({ userData, expectedToken: current.token, startupConfirmed: true });
-      await showMessageBox({ type: "info", title: "Save backup complete", message: "Your saves were backed up.", detail: resumed.continuation.backupPath });
+      await showColdBackupComplete(current, resumed.continuation.backupPath);
       return;
     }
     if (current.operation === "restore") {
@@ -390,7 +402,20 @@ function validRestoreMarker(marker) {
     (marker.status !== "failed" || typeof marker.recoveryRequired === "boolean") &&
     (marker.selected === undefined || typeof marker.selected === "string") &&
     (marker.safetyBackup === undefined || typeof marker.safetyBackup === "string") &&
-    (marker.coldToken === undefined || (typeof marker.coldToken === "string" && /^[a-f0-9]{64}$/.test(marker.coldToken)));
+    (marker.coldToken === undefined || (typeof marker.coldToken === "string" && BACKUP_TOKEN_PATTERN.test(marker.coldToken)));
+}
+
+async function recordInvalidRestoreMarker(marker, recovery) {
+  const blocked = recovery.recoveryPaths.length > 0 || Boolean(recovery.scanError);
+  try { await writeRestoreMarker(marker); }
+  catch (error) {
+    startupRecoveryBlocked = true;
+    const allowFresh = recovery.recoveryPaths.length === 0 && !recovery.scanError;
+    await showRestoreRecovery(marker, `${marker.error.message}\nCould not record the failed request: ${error.message}`, { blocked: true, allowFresh });
+    return;
+  }
+  startupRecoveryBlocked = blocked;
+  await showRestoreRecovery(marker, marker.error.message, { blocked });
 }
 
 async function applyPendingRestore() {
@@ -411,15 +436,7 @@ async function applyPendingRestore() {
     const recovery = await findRecoveryPaths(null);
     const blocked = recovery.recoveryPaths.length > 0 || Boolean(recovery.scanError);
     marker = { version: 1, status: "failed", selected: "Unavailable", safetyBackup: "Unavailable", recoveryPaths: recovery.recoveryPaths, recoveryRequired: blocked, error: { message: `The restore request is malformed and was not applied: ${error.message}${recovery.scanError ? ` Recovery-copy scan failed: ${recovery.scanError}` : ""}` } };
-    try { await writeRestoreMarker(marker); }
-    catch (markerError) {
-      startupRecoveryBlocked = true;
-      const allowFresh = recovery.recoveryPaths.length === 0 && !recovery.scanError;
-      await showRestoreRecovery(marker, `${marker.error.message}\nCould not record the failed request: ${markerError.message}`, { blocked: true, allowFresh });
-      return;
-    }
-    startupRecoveryBlocked = blocked;
-    await showRestoreRecovery(marker, marker.error.message, { blocked });
+    await recordInvalidRestoreMarker(marker, recovery);
     return;
   }
   const legacyPending = marker && typeof marker === "object" && !Array.isArray(marker) && marker.status === undefined && typeof marker.selected === "string";
@@ -430,15 +447,7 @@ async function applyPendingRestore() {
     const recovery = await findRecoveryPaths(marker);
     const blocked = recovery.recoveryPaths.length > 0 || Boolean(recovery.scanError);
     const failed = { version: 1, status: "failed", selected: typeof marker?.selected === "string" ? marker.selected : "Unavailable", safetyBackup: typeof marker?.safetyBackup === "string" ? marker.safetyBackup : "Unavailable", recoveryPaths: recovery.recoveryPaths, recoveryRequired: blocked, error: { message: `The restore request has an unsupported or incomplete format and was not applied.${recovery.scanError ? ` Recovery-copy scan failed: ${recovery.scanError}` : ""}` } };
-    try { await writeRestoreMarker(failed); }
-    catch (error) {
-      startupRecoveryBlocked = true;
-      const allowFresh = recovery.recoveryPaths.length === 0 && !recovery.scanError;
-      await showRestoreRecovery(failed, `${failed.error.message}\nCould not record the failed request: ${error.message}`, { blocked: true, allowFresh });
-      return;
-    }
-    startupRecoveryBlocked = blocked;
-    await showRestoreRecovery(failed, failed.error.message, { blocked });
+    await recordInvalidRestoreMarker(failed, recovery);
     return;
   }
 
@@ -537,7 +546,7 @@ async function applyPendingRestore() {
 
 async function performUpdateCheck() {
   if (backupRequestActive) {
-    await showMessageBox({ type: "info", title: "Backup already in progress", message: "Another Backup or Update continuation already owns the cold capture request." });
+    await showBackupAlreadyInProgress();
     return { available: false, busy: true };
   }
   backupRequestActive = true;
