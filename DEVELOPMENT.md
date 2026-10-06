@@ -37,7 +37,6 @@ npm install
 - `npm run package:win` — rebuild, restage, and create the release Windows x64 NSIS installer.
 - `npm run package:win:smoke` — compile the real NSIS UI without game resources under `release/smoke`; never distribute this artifact.
 - `npm run package:win:staged` — reuse validated `staging/` and the fingerprinted Windows cache to create a fast ZIP-based development installer under `release/dev`; never distribute this artifact.
-- `npm run package:win:benchmark` — compare current 7-Zip, hybrid precompressed-asset 7-Zip, and ZIP/store packaging from one cached payload under `release/benchmark`.
 - `npm run package:mac` — create the release-configured unsigned Apple Silicon DMG.
 - `npm run package:mac:local` — clone the pinned game revision, run tests, and create a local-only ad-hoc signed Apple Silicon DMG; never distribute its output.
 - `npm run sync:upstream` — perform guarded synchronization with `upstream/beta`.
@@ -77,7 +76,7 @@ The Vite app build is copied into `staging/game`, production source maps are omi
 Each build records exact game, asset, and locale revisions in `staging/revisions.json`. Applicable upstream license and attribution files are staged under `staging/licenses`.
 
 Windows releases are unsigned x64 NSIS installers. Public macOS release DMGs are unsigned and unnotarized Apple Silicon artifacts. The local `package:mac:local` command creates a separate ad-hoc signed artifact for the Mac that built it; that artifact is not distributable.
-Only `npm run package:win` and the approved macOS workflow produce distributable artifacts. Smoke, staged, and benchmark installers include `DO-NOT-DISTRIBUTE` in their names, use isolated output directories, and are rejected by the shared release-artifact guard. Staged packaging reports and validates the staged game, asset, and locale revisions before it runs.
+Only `npm run package:win` and the approved macOS workflow produce distributable artifacts. Smoke and staged installers include `DO-NOT-DISTRIBUTE` in their names, use isolated output directories, and are rejected by the shared release-artifact guard. Staged packaging reports and validates the staged game, asset, and locale revisions before it runs.
 
 The macOS release workflow is `.github/workflows/package-macos.yml`. It is started manually with an existing release tag, checks out the exact game revision recorded in that release manifest, builds on `macos-15`, runs the wrapper and mounted-DMG checks, then uploads short-retention Actions artifacts for hands-on QA. Configure a required reviewer for the `macos-release` GitHub Environment before enabling publication.
 
@@ -86,8 +85,6 @@ After testing the artifact on an Apple Silicon Mac, approve the environment job.
 The manual Mac QA checklist covers Gatekeeper approval through **System Settings -> Privacy & Security -> Open Anyway**, launch and relaunch, offline gameplay, audio, keyboard/controller input, saves, backup and restore, keybindings, cheats, utilities, resizing, fullscreen, suspend/resume, closing and reopening from the Dock, Cmd-Q, and install-over-install save preservation.
 
 Complete-game Windows packaging prepares one ignored `release/cache/win-x64` application. Staged builds reuse it only when the Electron version, wrapper inputs, staged revisions, and staged-file inventory match; release builds always refresh it. The staging copy uses Robocopy with five one-second retries for transient Windows file locks.
-
-The compression benchmark writes `release/benchmark/results.json` and compares current 7-Zip, hybrid 7-Zip that bypasses already-compressed media, and ZIP/store from the same cached application. A candidate is eligible for a future release only when installer packaging is at least 30% faster, installer size grows by no more than 10%, and clean install, upgrade, cancellation, launch, shortcuts, Add/Remove Programs identity, checksum, save-preservation, and uninstall checks pass. Running the benchmark never changes production configuration automatically.
 
 Windows uses the permanent `appId` to derive its upgrade identity. The NSIS installer is per-user, does not allow selecting alternate install directories, and uses a version-independent Add/Remove Programs name. These settings ensure a newer release replaces the registered installation instead of creating side-by-side copies. Do not change the `appId` or installer scope after release without an explicit migration.
 

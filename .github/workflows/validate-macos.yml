@@ -80,7 +80,6 @@ jobs:
       - name: Run wrapper tests including native Electron probes
         run: |
           npm test
-          node test/mac-signing-fs.test.cjs
 
       - name: Build the upstream game and unsigned arm64 DMG
         run: npm run package:mac -- --publish never

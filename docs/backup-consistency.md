@@ -8,6 +8,8 @@ Do not use a valid checksum as evidence that a live database snapshot is usable.
 
 ## Native probe
 
+The test file `test/backup-snapshot.test.mjs` was removed after the production cold Backup worker and `test/backup-worker.test.mjs` replaced it; it remains available in git history.
+
 `node --test test/backup-snapshot.test.mjs` passed on Windows x64 with Electron 42.7.1, Chromium as bundled by that Electron release, and Node 24.18.0. The test performed eight independent captures in disposable source and restore profiles. Electron's `session.fromPath()` created the source and fresh restore sessions. A hidden Electron window kept the process alive while each source window was closed and its restored profile reopened.
 
 Each round wrote PokeRogue-shaped system and session records to Local Storage and a synthetic two-store IndexedDB database. One starter and Pokédex entry follows the per-species consistency rule in upstream `GameData.validateSystemData()`; this is not a full upstream system-record validation. The session record contains the fields checked by upstream session validation. The fixture then paused between writing the system and session Local Storage keys, flushed DOMStorage, called the production `createBackup()`, validated the resulting manifest, and restored it with the production `restoreBackup()` into a fresh profile.
@@ -17,6 +19,8 @@ All eight manifests validated. All eight restored Local Storage and IndexedDB da
 The staged generation difference also must not be read as a demonstrated game corruption. Upstream `saveAll()` writes system and session records to separate Local Storage keys, and the fixture deliberately pauses between those statements. This establishes that Backup can preserve a state already present in the profile. It does not show that the filesystem copy introduced that state, nor that the upstream game promises an atomic transaction across the keys.
 
 ## R14 cold-profile worker prototype
+
+The test file `test/backup-cold-capture.test.mjs` was removed after the production cold Backup worker and `test/backup-worker.test.mjs` replaced it; it remains available in git history.
 
 `node --test test/backup-cold-capture.test.mjs` passed three repeated rounds on Windows x64, OS release 10.0.26200, with Electron 42.11.10, Chromium 148.0.7778.280, and its embedded Node 24.19.0; the parent test runner used Node 24.18.0. Each round launched the imported Electron executable directly with a CJS helper. The source process called `app.relaunch()` and quit; the relaunched worker acquired the single-instance lock only after the source process exited, then changed both `userData` and `sessionData` before readiness. The worker's default session storage path and Local Storage/IndexedDB roots were inside its disposable worker profile, and a concurrent launch targeting the source profile was refused before it opened a session.
 
