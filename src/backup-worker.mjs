@@ -1,17 +1,11 @@
 import { app } from "electron";
 import { lstat, mkdir, rename, rmdir } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
-import { createBackup, validateBackup } from "./backup.mjs";
+import { join } from "node:path";
+import { createBackup, isDirectChild, validateBackup } from "./backup.mjs";
+import { BACKUP_TOKEN_PATTERN } from "./constants.mjs";
 import { cleanupCaptureStage, getCapturePaths, readIntent, recoverStaleIntentLock, transitionIntent } from "./backup-coordinator.mjs";
 
 const contextKey = Symbol.for("pokerogue.backup-worker-context");
-const tokenPattern = /^[a-f0-9]{64}$/;
-
-function within(root, candidate) {
-  const rel = relative(resolve(root), resolve(candidate));
-  return Boolean(rel) && rel !== ".." && !rel.startsWith(`..${sep}`) && dirname(resolve(candidate)) === resolve(root);
-}
-
 async function assertParentExited(pid) {
   try {
     process.kill(pid, 0);
@@ -65,7 +59,7 @@ async function ensureSafeBackupRoot(userData, backupRoot) {
 
 export async function runBackupWorker() {
   const context = globalThis[contextKey];
-  if (!context || context.lockAcquired !== true || typeof context.sourceUserData !== "string" || !tokenPattern.test(context.token)) {
+  if (!context || context.lockAcquired !== true || typeof context.sourceUserData !== "string" || !BACKUP_TOKEN_PATTERN.test(context.token)) {
     throw new Error("Backup worker bootstrap context is invalid");
   }
   let intent;
@@ -79,14 +73,14 @@ export async function runBackupWorker() {
     captureStarted = true;
 
     const paths = getCapturePaths(context.sourceUserData, intent);
-    if (!within(paths.backupRoot, paths.stageRoot)) throw new Error("Token-owned capture container escaped the app Backup root");
+    if (!isDirectChild(paths.backupRoot, paths.stageRoot)) throw new Error("Token-owned capture container escaped the app Backup root");
     await ensureSafeBackupRoot(context.sourceUserData, paths.backupRoot);
     await mkdir(paths.stageRoot, { recursive: false });
     try { await lstat(paths.finalBackupPath); throw new Error("Token-owned final Backup path already exists"); }
     catch (error) { if (error.code !== "ENOENT") throw error; }
 
     const generatedPath = await createBackup(context.sourceUserData, paths.stageRoot);
-    if (!within(paths.stageRoot, generatedPath)) throw new Error("Backup publisher returned a path outside the private token container");
+    if (!isDirectChild(paths.stageRoot, generatedPath)) throw new Error("Backup publisher returned a path outside the private token container");
     await validateBackup(generatedPath);
     await rename(generatedPath, paths.finalBackupPath);
     await rmdir(paths.stageRoot);

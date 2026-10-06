@@ -5,7 +5,8 @@ import { Writable } from "node:stream";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assertAllowedUrl, compareVersions, downloadVerified, validateReleaseManifest } from "../src/updater.mjs";
+import { compareVersions, downloadVerified, validateReleaseManifest } from "../src/updater.mjs";
+import { assertAllowedUrl } from "../src/release-contract.mjs";
 
 const digest = value => createHash("sha256").update(value).digest("hex");
 const artifact = (bytes, downloadUrl = "https://github.com/gaboopa/releases/download/v1/app.dmg") => ({ downloadUrl, size: Buffer.byteLength(bytes), sha256: digest(bytes) });

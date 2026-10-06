@@ -16,7 +16,11 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-export { assertAllowedUrl } from "./release-contract.mjs";
+export async function sha256File(path) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex");
+}
 
 async function fetchAllowed(url, options = {}, redirects = 0) {
   const checked = assertAllowedUrl(url);
@@ -73,9 +77,7 @@ async function matchesArtifact(path, artifact, statFile) {
   }
   if (file.size !== artifact.size) return false;
 
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
-  return hash.digest("hex").toLowerCase() === artifact.sha256.toLowerCase();
+  return (await sha256File(path)).toLowerCase() === artifact.sha256.toLowerCase();
 }
 
 export async function downloadVerified(artifact, destinationRoot, fileOperations = {}) {

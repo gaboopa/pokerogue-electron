@@ -1,10 +1,9 @@
 import { app, dialog } from "electron";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
-import { PRODUCT_NAME } from "./constants.mjs";
+import { BACKUP_TOKEN_PATTERN, PRODUCT_NAME } from "./constants.mjs";
 
 const require = createRequire(import.meta.url);
-const tokenPattern = /^[a-f0-9]{64}$/;
 const args = process.argv.slice(1);
 let failureReported = false;
 
@@ -60,7 +59,7 @@ function parseArguments() {
   for (const key of values.keys()) if (!allowed.includes(key)) throw new Error(`Argument ${key} is not valid for this startup mode`);
   if (values.has("--updated") && values.get("--updated") !== true) throw new Error("Installer notification --updated must be a bare flag");
   if (worker) {
-    if (token === true || typeof token !== "string" || !tokenPattern.test(token)) throw new Error("Worker requires one lowercase 64-hex Backup token");
+    if (token === true || typeof token !== "string" || !BACKUP_TOKEN_PATTERN.test(token)) throw new Error("Worker requires one lowercase 64-hex Backup token");
     if (parentPidText === true || typeof parentPidText !== "string" || !/^[1-9]\d{0,9}$/.test(parentPidText)) throw new Error("Worker requires one positive source-process PID");
     const parentPid = Number(parentPidText);
     if (!Number.isSafeInteger(parentPid)) throw new Error("Worker source-process PID is outside the supported range");

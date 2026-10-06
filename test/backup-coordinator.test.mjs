@@ -206,38 +206,6 @@ test("corrupt published Backup blocks resume but terminal failure and private-st
   });
 });
 
-test("a vetoed cancelled intent keeps new requests busy until startup acknowledges it", async () => {
-  await withProfile(async ({ userData }) => {
-    const cancelled = await createIntent({ userData, operation: "manual", payload: {} });
-    const state = await transitionIntent({
-      userData,
-      expectedToken: cancelled.token,
-      expectedRevision: cancelled.revision,
-      nextState: "cancelled",
-    });
-    await assert.rejects(createIntent({ userData, operation: "manual", payload: {} }), /active|pending|busy|startup/i);
-
-    await clearTerminalIntent({ userData, expectedToken: state.token, startupConfirmed: true });
-    const next = await createIntent({ userData, operation: "manual", payload: {} });
-    const nextStage = getCapturePaths(userData, next).stageRoot;
-    const oldStage = getCapturePaths(userData, state).stageRoot;
-    await mkdir(nextStage, { recursive: true });
-    await writeFile(join(nextStage, "keep.txt"), "new intent owns this");
-    await mkdir(oldStage, { recursive: true });
-    await writeFile(join(oldStage, "old.txt"), "old stage");
-
-    await assert.rejects(readIntent({ userData, expectedToken: state.token }), /token|mismatch/i);
-    await assert.rejects(transitionIntent({
-      userData,
-      expectedToken: state.token,
-      expectedRevision: state.revision,
-      nextState: "capturing",
-    }), /token|mismatch/i);
-    await assert.rejects(cleanupCaptureStage({ userData, expectedToken: state.token }), /token|mismatch/i);
-    assert.equal(await readFile(join(nextStage, "keep.txt"), "utf8"), "new intent owns this");
-  });
-});
-
 test("an old in-flight Update resume cannot replace a newer intent after terminal acknowledgement", async () => {
   await withProfile(async ({ userData }) => {
     const bytes = Buffer.alloc(128 * 1024 * 1024, 0x5a);

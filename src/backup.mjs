@@ -1,11 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
 import { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export const STORAGE_DIRECTORIES = ["Local Storage", "IndexedDB", "Session Storage"];
 
 const filesystem = { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile };
 const CURRENT_SCHEMA_VERSION = 2;
+
+export function isDirectChild(root, candidate) {
+  const absolute = resolve(candidate);
+  const resolvedRoot = resolve(root);
+  const rel = relative(resolvedRoot, absolute);
+  const samePath = (left, right) => process.platform === "win32"
+    ? left.toLocaleLowerCase("en-US") === right.toLocaleLowerCase("en-US")
+    : left === right;
+  return isAbsolute(candidate) && Boolean(rel) && rel !== ".." && !rel.startsWith(`..${sep}`) && samePath(dirname(absolute), resolvedRoot);
+}
 
 export class BackupRestoreError extends Error {
   constructor(message, { cause, recoveryRequired = false, recoveryPath, recoveryErrors = [], restored = false } = {}) {
@@ -134,10 +144,8 @@ function validateManifestShape(manifest) {
 }
 
 function assertOwnedStage(backupRoot, stagePath) {
-  const resolvedRoot = resolve(backupRoot);
   const resolvedStage = resolve(stagePath);
-  const relativeStage = relative(resolvedRoot, resolvedStage);
-  if (!relativeStage || relativeStage === ".." || relativeStage.startsWith(`..${sep}`) || dirname(resolvedStage) !== resolvedRoot) {
+  if (!isDirectChild(backupRoot, stagePath)) {
     throw new Error(`Refusing to remove Backup stage outside its root: ${stagePath}`);
   }
   return resolvedStage;
@@ -149,16 +157,9 @@ export async function createBackup(userData, backupRoot, fs = filesystem) {
   await operations.mkdir(backupRoot, { recursive: true });
   let stage;
   try {
-    for (let attempt = 0; attempt < 10 && !stage; attempt++) {
-      const candidate = join(backupRoot, `.backup-${stamp}-${randomUUID()}.tmp`);
-      try {
-        await operations.mkdir(candidate);
-        stage = candidate;
-      } catch (error) {
-        if (error.code !== "EEXIST") throw error;
-      }
-    }
-    if (!stage) throw new Error("Could not allocate a unique temporary Backup directory");
+    const candidate = join(backupRoot, `.backup-${stamp}-${randomUUID()}.tmp`);
+    await operations.mkdir(candidate);
+    stage = candidate;
     await operations.mkdir(join(stage, "data"));
     const included = [];
     for (const name of STORAGE_DIRECTORIES) {
@@ -183,17 +184,13 @@ export async function createBackup(userData, backupRoot, fs = filesystem) {
     await operations.writeFile(join(stage, "manifest.json"), JSON.stringify(manifest, null, 2));
     await validateBackup(stage, operations);
 
-    let destination;
-    for (let attempt = 0; attempt < 10 && !destination; attempt++) {
-      const candidate = join(backupRoot, `backup-${stamp}-${randomUUID()}`);
-      try {
-        await operations.lstat(candidate);
-      } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-        destination = candidate;
-      }
+    const destination = join(backupRoot, `backup-${stamp}-${randomUUID()}`);
+    try {
+      await operations.lstat(destination);
+      throw new Error("Could not allocate a unique published Backup directory");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
     }
-    if (!destination) throw new Error("Could not allocate a unique published Backup directory");
     await operations.rename(stage, destination);
     stage = undefined;
     return destination;
