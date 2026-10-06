@@ -242,7 +242,7 @@ async function createHarness() {
     }
     const snapshot = {
       pid: process.pid, platform: process.platform, quits: state.quits, relaunches: state.relaunches, relaunchSnapshots: state.relaunchSnapshots, quitSnapshots: state.quitSnapshots, initialGame: game ? { reloads: game.reloads, shows: game.shows, destroyed: game.destroyed } : null,
-      games: games().length, instances: state.instances.map(window => ({ role: window.role, destroyed: window.destroyed, reloads: window.reloads, shows: window.shows, hides: window.hides })),
+      games: games().length, instances: state.instances.map(window => ({ role: window.role, webPreferences: Object.fromEntries(["sandbox", "contextIsolation", "nodeIntegration", "webSecurity"].map(key => [key, window.options.webPreferences[key]])), destroyed: window.destroyed, reloads: window.reloads, shows: window.shows, hides: window.hides })),
       urls: state.urls ?? [], dialogs: state.dialogs, dialogParents: state.dialogParents, opened: state.opened, flushes: state.flushes, backups: state.backups,
       afterRepeatedActivation: state.afterRepeatedActivation, afterStaleCallbacks: state.afterStaleCallbacks, staleSnapshot: state.staleSnapshot,
       auxiliaryAlive: state.auxiliaryAlive, replacementShown: state.replacementShown, keyboardPrevented: state.keyboardPrevented,
@@ -271,6 +271,15 @@ async function launch(scenario) {
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   return JSON.parse(await readFile(resultPath, "utf8"));
 }
+
+test("game, cheat editor, and chart windows use the secure web preferences", async () => {
+  const state = await launch("reopen");
+  const securePreferences = { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true };
+  for (const role of ["game", "editor", "chart"]) {
+    const window = state.instances.find(instance => instance.role === role);
+    assert.deepEqual(window.webPreferences, securePreferences, `${role} window`);
+  }
+});
 
 test("activation reopens one game window while chart and cheat editor survive, and stale callbacks cannot affect it", async () => {
   const state = await launch("reopen");
