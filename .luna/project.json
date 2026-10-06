@@ -1,0 +1,13 @@
+{
+  "setup": [
+    "powershell -NoProfile -Command \"New-Item -ItemType Junction -Path node_modules -Target '{repo}/node_modules' | Out-Null\"",
+    "node_modules\\.bin\\electron.cmd --version"
+  ],
+  "gates": [
+    "git diff --check",
+    "npm test"
+  ],
+  "defaultProfile": "write",
+  "defaultModel": "gpt-6-luna",
+  "defaultEffort": "high"
+}
