@@ -15,8 +15,6 @@ import {
   isSuccessfulRobocopyExitCode,
   prepareWindowsCache,
 } from "../scripts/package-win-cache.mjs";
-import { createBenchmarkConfig, runBenchmarkVariant, selectBenchmarkCandidate } from "../scripts/benchmark-win-packaging.mjs";
-import { shouldStageGamePath } from "../scripts/staging-policy.mjs";
 
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
@@ -106,37 +104,6 @@ test("staged packaging retains resources and uses fast ZIP settings", () => {
   assert.equal(config.nsis.warningsAsErrors, true);
 });
 
-test("benchmark configurations compare current, hybrid, and ZIP from prepackaged content", () => {
-  const current = createBenchmarkConfig(packageJson.build, "current");
-  const hybrid = createBenchmarkConfig(packageJson.build, "hybrid");
-  const zip = createBenchmarkConfig(packageJson.build, "zip");
-  assert.equal(current.extraResources, null);
-  assert.equal(Object.hasOwn(current.nsis, "useZip"), false);
-  assert.equal(Object.hasOwn(current.nsis, "preCompressedFileExtensions"), false);
-  assert.ok(hybrid.nsis.preCompressedFileExtensions.includes(".mp3"));
-  assert.ok(hybrid.nsis.preCompressedFileExtensions.includes(".png"));
-  assert.equal(zip.nsis.differentialPackage, false);
-  assert.equal(zip.nsis.useZip, true);
-  for (const config of [current, hybrid, zip]) assert.match(config.win.artifactName, /DO-NOT-DISTRIBUTE/);
-});
-
-test("benchmark selects the fastest candidate that passes time and size thresholds", () => {
-  const baseline = { kind: "current", installerSeconds: 100, bytes: 1000 };
-  const selection = selectBenchmarkCandidate(baseline, [
-    { kind: "hybrid", installerSeconds: 69, bytes: 1100 },
-    { kind: "zip", installerSeconds: 50, bytes: 1110 },
-  ]);
-  assert.equal(selection.candidates[0].packagingThresholdsPassed, true);
-  assert.equal(selection.candidates[1].packagingThresholdsPassed, false);
-  assert.equal(selection.selected, "hybrid");
-});
-
-test("source maps are omitted from staged game content", () => {
-  assert.equal(shouldStageGamePath("dist/assets/app.js.map"), false);
-  assert.equal(shouldStageGamePath("dist/assets/APP.MAP"), false);
-  assert.equal(shouldStageGamePath("dist/assets/app.js"), true);
-});
-
 test("Windows cache fingerprints are stable and invalidate on wrapper and staging changes", async t => {
   const { root } = await createCacheFixture(t);
   const first = await createWindowsCacheDescriptor(root);
@@ -180,17 +147,11 @@ test("staged cache is reused, forced refresh rebuilds, and incomplete cache is r
   assert.ok(calls.every(options => options.publish === "never"));
 });
 
-test("Windows installer and benchmark builds explicitly disable automatic publishing", async t => {
+test("Windows installer builds explicitly disable automatic publishing", async t => {
   const { root, buildConfig } = await createCacheFixture(t);
   await packageWindows("smoke", { root, baseBuild: buildConfig, buildFn: async options => {
     assert.equal(options.publish, "never");
     return [];
-  } });
-  await runBenchmarkVariant({ root, baseBuild: buildConfig, kind: "zip", prepackagedPath: root, buildFn: async options => {
-    assert.equal(options.publish, "never");
-    const artifact = join(root, "release", "benchmark", "zip", "fixture.exe");
-    await writeFixtureFile(root, "release/benchmark/zip/fixture.exe");
-    return [artifact];
   } });
 });
 
@@ -226,7 +187,6 @@ test("non-release Windows artifacts cannot be published", () => {
   ]) assert.throws(() => assertDistributableArtifactName(file), /Refusing to publish non-release artifact/);
 });
 
-test("unknown Windows package modes and benchmark kinds fail closed", () => {
+test("unknown Windows package modes fail closed", () => {
   assert.throws(() => createWindowsBuildConfig(packageJson.build, "quick"), /Unknown Windows package mode/);
-  assert.throws(() => createBenchmarkConfig(packageJson.build, "quick"), /Unknown benchmark kind/);
 });

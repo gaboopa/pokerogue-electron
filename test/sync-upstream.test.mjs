@@ -35,7 +35,6 @@ async function createFixture(root, { failValidation = false, conflict = false, d
   await copyFile(join(repositoryRoot, "scripts", "sync-upstream.mjs"), join(scripts, "sync-upstream.mjs"));
   await copyFile(join(repositoryRoot, "scripts", "lib.mjs"), join(scripts, "lib.mjs"));
   await copyFile(join(repositoryRoot, "scripts", "build-game.mjs"), join(scripts, "build-game.mjs"));
-  await copyFile(join(repositoryRoot, "scripts", "staging-policy.mjs"), join(scripts, "staging-policy.mjs"));
   await copyFile(join(repositoryRoot, ".gitignore"), join(wrapperRoot, ".gitignore"));
   await writeFile(join(tests, "space-path.test.mjs"), `import assert from "node:assert/strict";\nimport { appendFileSync } from "node:fs";\nassert.ok(process.execPath.includes("Node runtime with spaces"));\nassert.ok(process.cwd().includes("wrapper repository with spaces"));\n${failValidation ? "assert.fail(\"fixture test failure\");\n" : ""}appendFileSync(process.env.SYNC_FIXTURE_LOG, "node-test\\n");\n`);
   await git(wrapperRoot, "init", "-b", "main");
