@@ -13,17 +13,6 @@ Var InstallerProgressTimerStarted
   StrCpy $InstallerProgressTimerStarted "0"
 !macroend
 
-!macro customHeader
-  Function InstallerStartApp
-    ${If} ${isUpdated}
-      StrCpy $1 "--updated"
-    ${Else}
-      StrCpy $1 ""
-    ${EndIf}
-    ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$1"
-  FunctionEnd
-!macroend
-
 !macro customWelcomePage
   !define MUI_WELCOMEPAGE_TITLE "Ready to install PokeRogue Offline?"
   !define MUI_WELCOMEPAGE_TEXT "Click Next to begin setting up a new offline version of PokeRogue on your PC. It only takes a few moments.$\r$\n$\r$\nPlease verify you're installing the latest version! This is version: ${VERSION}"
@@ -33,15 +22,6 @@ Var InstallerProgressTimerStarted
 !macro customPageAfterChangeDir
   !define MUI_PAGE_CUSTOMFUNCTION_SHOW InstallerProgressPageShow
   !define MUI_PAGE_CUSTOMFUNCTION_LEAVE InstallerProgressPageLeave
-!macroend
-
-!macro customFinishPage
-  !ifndef HIDE_RUN_AFTER_FINISH
-    !define MUI_FINISHPAGE_RUN
-    !define MUI_FINISHPAGE_RUN_FUNCTION "InstallerStartApp"
-  !endif
-  !define MUI_PAGE_CUSTOMFUNCTION_SHOW InstallerFinishPageShow
-  !insertmacro MUI_PAGE_FINISH
 !macroend
 
 !macro customInstall
@@ -102,15 +82,10 @@ Function InstallerUpdateProgress
   ${If} $InstallerPercentLabel != ""
     SendMessage $InstallerPercentLabel ${WM_SETTEXT} 0 "STR:$0%"
   ${EndIf}
-  ${If} $0 < 5
+  ${If} $0 < 75
     SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Installing application files"
-    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Now] Installing   [    ] Finishing"
-  ${ElseIf} $0 < 75
-    SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Installing application files"
-    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Now] Installing   [    ] Finishing"
   ${ElseIf} $0 < 96
     SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Installing offline game content"
-    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Now] Installing   [    ] Finishing"
   ${ElseIf} $0 < 100
     SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Creating shortcuts"
     SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Done] Installing   [Now] Finishing"
@@ -136,23 +111,10 @@ Function InstallerProgressPageLeave
     nsDialogs::KillTimer InstallerUpdateProgress
     StrCpy $InstallerProgressTimerStarted "0"
   ${EndIf}
-  ${If} $InstallerStepsLabel != ""
-    System::Call 'user32::DestroyWindow(p $InstallerStepsLabel)'
-    StrCpy $InstallerStepsLabel ""
-  ${EndIf}
-  ${If} $InstallerPercentLabel != ""
-    System::Call 'user32::DestroyWindow(p $InstallerPercentLabel)'
-    StrCpy $InstallerPercentLabel ""
-  ${EndIf}
-  ${If} $InstallerStatusLabel != ""
-    System::Call 'user32::DestroyWindow(p $InstallerStatusLabel)'
-    StrCpy $InstallerStatusLabel ""
-  ${EndIf}
+  StrCpy $InstallerStepsLabel ""
+  StrCpy $InstallerPercentLabel ""
+  StrCpy $InstallerStatusLabel ""
   StrCpy $InstallerProgressBar ""
 FunctionEnd
 
-Function InstallerFinishPageShow
-  GetDlgItem $0 $HWNDPARENT 1006
-  SendMessage $0 ${WM_SETTEXT} 0 "STR:PokeRogue Offline is installed"
-FunctionEnd
 !endif
