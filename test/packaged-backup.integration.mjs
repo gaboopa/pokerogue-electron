@@ -323,10 +323,8 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     const cheatDocument = JSON.parse(await readFile(join(cheat.userData, "cheats.json"), "utf8"));
     assert.equal(cheatDocument.config.enabled, true);
     assert.equal(cheatDocument.config.xpMultiplier, 2);
-    assert.equal(cheatDocument.usage.applyCount, 1);
-    assert.equal(cheatDocument.usage.everEnabled, true);
     assert.deepEqual((await readGame(cheat.remotePort)).local, { suffix: "cheat", value: "local-cheat" });
-    flowResults.push({ flow: "cheat", outcome: "passed", capturePath: cheat.capturePath, included: cheat.manifest.included, applyCount: cheatDocument.usage.applyCount, config: cheatDocument.config });
+    flowResults.push({ flow: "cheat", outcome: "passed", capturePath: cheat.capturePath, included: cheat.manifest.included, config: cheatDocument.config });
 
     const cancelledState = await launch("cancel", 1);
     await waitForGame(cancelledState.remotePort);

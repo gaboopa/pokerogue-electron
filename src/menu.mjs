@@ -34,7 +34,7 @@ export function createMenuTemplate({
   ];
 
   const viewSubmenu = [
-    { label: "Reload", accelerator: isMac ? "Command+R" : "CommandOrControl+R", click: onReload },
+    { label: "Reload", accelerator: "CommandOrControl+R", click: onReload },
     { label: "Toggle Full Screen", accelerator: isMac ? "Control+Command+F" : "F11", click: onToggleFullscreen },
     { label: "Developer Tools", accelerator: isMac ? "Alt+Command+I" : "F12", click: onDeveloperTools },
   ];
