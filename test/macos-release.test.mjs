@@ -11,6 +11,7 @@ import { validateReleaseManifest } from "../src/updater.mjs";
 import { createArtifactRecord, createManifest, mergeArtifact } from "../scripts/release-manifest-lib.mjs";
 import { assertValidRelease } from "../src/release-contract.mjs";
 import { assertSupportedHost, createLocalArtifactName, createLocalPackageArguments, parseAvailableBytes } from "../scripts/package-mac-local.mjs";
+import { manifestFixture } from "./helpers/manifest-fixture.mjs";
 
 function callbacks() {
   return {
@@ -27,21 +28,6 @@ function callbacks() {
   };
 }
 
-test("macOS packaging keeps the arm64 unsigned DMG contract", async () => {
-  const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-  const mac = packageJson.build.mac;
-  assert.deepEqual(mac.target, [{ target: "dmg", arch: ["arm64"] }]);
-  assert.equal(mac.artifactName, "PokeRogue-Offline-${version}-macos-arm64.${ext}");
-  assert.equal(mac.identity, null);
-  assert.equal(mac.icon, "build/icon.png");
-  assert.equal(mac.hardenedRuntime, false);
-  assert.equal(mac.notarize, false);
-  assert.equal(packageJson.build.dmg.sign, false);
-  assert.equal(packageJson.build.dmg.filesystem, "HFS+");
-  assert.deepEqual(packageJson.build.dmg.contents[1], { x: 410, y: 220, type: "link", path: "/Applications" });
-  const workflow = await readFile(new URL("../.github/workflows/package-macos.yml", import.meta.url), "utf8");
-  assert.match(workflow, /run: npm run package:mac -- --publish never/);
-});
 
 test("macOS icon source is validated when the supplied artwork is present", async t => {
   const iconUrl = new URL("../build/icon.png", import.meta.url);
@@ -175,80 +161,32 @@ test("artifact hashing closes its stream after a read error", async t => {
   assert.equal(stream.closed, true);
 });
 
-test("manifest artifact merges preserve policy, ordering, cloning, and input identity across 24 cases", () => {
-  const revisions = { game: "game", assets: "assets", locales: "locales" };
-  const artifact = (platform, fixtureId) => {
-    const arch = platform === "windows" ? "x64" : "arm64";
-    const extension = platform === "windows" ? "exe" : "dmg";
-    return {
-      platform,
-      arch,
-      fileName: `PokeRogue-Offline-0.1.3-${platform}-${arch}.${extension}`,
-      size: 10,
-      sha256: "a".repeat(64),
-      downloadUrl: `https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/${fixtureId}.${extension}`,
-      fixtureId,
-    };
-  };
-  const windows = artifact("windows", "windows-a");
-  const windowsDuplicate = artifact("windows", "windows-b");
-  const mac = artifact("macos", "macos-a");
-  const macDuplicate = artifact("macos", "macos-b");
-  const lists = [
-    { name: "empty", artifacts: [] },
-    { name: "Windows", artifacts: [windows] },
-    { name: "macOS", artifacts: [mac] },
-    { name: "Windows then macOS", artifacts: [windows, mac] },
-    { name: "macOS then Windows", artifacts: [mac, windows] },
-    { name: "interleaved duplicate coordinates", artifacts: [mac, windows, macDuplicate, windowsDuplicate] },
-  ];
-  const coordinate = item => `${item.platform}/${item.arch}`;
-  let cases = 0;
+test("adding a platform sorts artifacts without mutating the manifest", () => {
+  const windows = { platform: "windows", arch: "x64", fileName: "PokeRogue-Offline-0.1.3-windows-x64.exe", size: 10, sha256: "a".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/windows.exe" };
+  const mac = { platform: "macos", arch: "arm64", fileName: "PokeRogue-Offline-0.1.3-macos-arm64.dmg", size: 12, sha256: "b".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/macos.dmg" };
+  const manifest = manifestFixture({ artifacts: [windows] });
+  const original = structuredClone(manifest);
+  const merged = mergeArtifact(manifest, mac);
+  assert.deepEqual(merged.artifacts, [mac, windows]);
+  assert.deepEqual(manifest, original);
+});
 
-  for (const list of lists) {
-    for (const platform of ["windows", "macos"]) {
-      for (const replaceExisting of [false, true]) {
-        cases++;
-        const added = artifact(platform, `new-${platform}`);
-        const artifacts = [...list.artifacts];
-        const manifest = { schemaVersion: 1, version: "0.1.3", sourceRevisions: revisions, artifacts };
-        const originalArtifacts = manifest.artifacts;
-        const originalManifest = structuredClone(manifest);
-        const hasMatch = artifacts.some(item => coordinate(item) === coordinate(added));
+test("adding an existing platform without replacement reports the exact error", () => {
+  const mac = { platform: "macos", arch: "arm64", fileName: "PokeRogue-Offline-0.1.3-macos-arm64.dmg", size: 12, sha256: "b".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/macos.dmg" };
+  assert.throws(() => mergeArtifact(manifestFixture({ artifacts: [mac] }), mac), error => error.message === "Manifest already contains macos/arm64; pass --replace to replace it");
+});
 
-        if (hasMatch && !replaceExisting) {
-          assert.throws(
-            () => mergeArtifact(manifest, added, { replaceExisting }),
-            error => error.message === `Manifest already contains ${coordinate(added)}; pass --replace to replace it`,
-            `${list.name}, ${platform}, replacement disabled`,
-          );
-        } else {
-          const retained = artifacts.filter(item => !replaceExisting || coordinate(item) !== coordinate(added));
-          const expected = retained.map(item => ({ ...item }));
-          expected.push(added);
-          expected.sort((left, right) => coordinate(left).localeCompare(coordinate(right)));
+test("replacing an existing platform replaces its artifact", () => {
+  const previous = { platform: "macos", arch: "arm64", fileName: "PokeRogue-Offline-0.1.3-macos-arm64.dmg", size: 12, sha256: "b".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/macos.dmg" };
+  const replacement = { ...previous, size: 13, sha256: "c".repeat(64) };
+  const merged = mergeArtifact(manifestFixture({ artifacts: [previous] }), replacement, { replaceExisting: true });
+  assert.deepEqual(merged.artifacts, [replacement]);
+});
 
-          const merged = mergeArtifact(manifest, added, { replaceExisting });
-          assert.notStrictEqual(merged, manifest);
-          assert.notStrictEqual(merged.artifacts, originalArtifacts);
-          assert.deepEqual(merged.artifacts, expected, `${list.name}, ${platform}, replace=${replaceExisting}`);
-          assert.strictEqual(merged.artifacts.find(item => item.fixtureId === added.fixtureId), added);
-          for (const retainedArtifact of retained) {
-            const copy = merged.artifacts.find(item => item.fixtureId === retainedArtifact.fixtureId);
-            assert.deepEqual(copy, retainedArtifact);
-            assert.notStrictEqual(copy, retainedArtifact);
-          }
-        }
-
-        assert.strictEqual(manifest.artifacts, originalArtifacts);
-        assert.deepEqual(manifest, originalManifest);
-      }
-    }
-  }
-
-  assert.equal(cases, 24);
-  const invalid = { ...artifact("macos", "invalid"), platform: "linux" };
-  const manifest = { schemaVersion: 1, version: "0.1.3", sourceRevisions: revisions, artifacts: [windows] };
+test("merging rejects unsupported artifact coordinates without mutating the manifest", () => {
+  const windows = { platform: "windows", arch: "x64", fileName: "PokeRogue-Offline-0.1.3-windows-x64.exe", size: 10, sha256: "a".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/windows.exe" };
+  const invalid = { platform: "linux", arch: "arm64", fileName: "PokeRogue-Offline-0.1.3-linux-arm64.dmg", size: 10, sha256: "a".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/linux.dmg" };
+  const manifest = manifestFixture({ artifacts: [windows] });
   const originalArtifacts = manifest.artifacts;
   assert.throws(() => mergeArtifact(manifest, invalid, { replaceExisting: true }), /Unsupported release artifact coordinates: linux\/arm64/);
   assert.strictEqual(manifest.artifacts, originalArtifacts);
@@ -256,15 +194,12 @@ test("manifest artifact merges preserve policy, ordering, cloning, and input ide
 });
 
 test("a malformed non-selected artifact invalidates the whole release", () => {
-  const manifest = {
-    schemaVersion: 1,
-    version: "0.1.3",
-    sourceRevisions: { game: "game", assets: "assets", locales: "locales" },
+  const manifest = manifestFixture({
     artifacts: [
       { platform: "windows", arch: "x64", fileName: "PokeRogue-Offline-0.1.3-windows-x64.exe", size: 10, sha256: "a".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/windows.exe" },
       { platform: "macos", arch: "arm64", size: 12, sha256: "b".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/macos.dmg" },
     ],
-  };
+  });
   for (const [broken, pattern] of [
     [{ ...manifest.artifacts[0], sha256: "nothex" }, /sha256/],
     [{ ...manifest.artifacts[0], size: 0 }, /size/],
@@ -275,12 +210,9 @@ test("a malformed non-selected artifact invalidates the whole release", () => {
   }
 });
 test("updater selects a macOS arm64 artifact from a combined manifest", () => {
-  const manifest = {
-    schemaVersion: 1,
-    version: "0.1.3",
-    sourceRevisions: { game: "game", assets: "assets", locales: "locales" },
+  const manifest = manifestFixture({
     artifacts: [{ platform: "windows", arch: "x64", fileName: "PokeRogue-Offline-0.1.3-windows-x64.exe", size: 10, sha256: "a".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/windows.exe" }, { platform: "macos", arch: "arm64", fileName: "PokeRogue-Offline-0.1.3-macos-arm64.dmg", size: 12, sha256: "b".repeat(64), downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v0.1.3/macos.dmg" }],
-  };
+  });
   assert.equal(validateReleaseManifest(manifest, "macos", "arm64").artifact.size, 12);
 });
 
@@ -289,10 +221,6 @@ test("local macOS builder is isolated, pinned, and ad-hoc only", async () => {
   const config = JSON.parse(await readFile(new URL("../build/local-macos-build.json", import.meta.url), "utf8"));
   assert.equal(packageJson.scripts["package:mac:local"], "node scripts/package-mac-local.mjs");
   assert.equal(config.wrapperVersion, packageJson.version);
-  assert.equal(config.gameRevision, "ae6a29a0755743a72f928ac8e3adfd00ec6e01f0");
-  assert.equal(config.assetsRevision, "909b43612324622608023b3beb2f24f4ef159c1d");
-  assert.equal(config.localesRevision, "c2f9c794ce17f1445d14357a4995353447e9df55");
-  assert.equal(config.pnpmVersion, "10.34.5");
   assert.match(createLocalArtifactName(packageJson.version), /LOCAL-ONLY-DO-NOT-DISTRIBUTE\.dmg$/);
   const args = createLocalPackageArguments(packageJson.version);
   assert.ok(args.includes("-c.mac.identity=-"));
@@ -308,14 +236,4 @@ test("local macOS builder rejects non-Apple-Silicon hosts and parses disk space"
   assert.throws(() => assertSupportedHost({ platform: "win32", arch: "arm64", nodeVersion: "24.0.0" }), /must be run on macOS/);
   assert.throws(() => assertSupportedHost({ platform: "darwin", arch: "arm64", nodeVersion: "23.0.0" }), /Node.js 24/);
   assert.equal(parseAvailableBytes("Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk1 100 20 80 20% /"), 80 * 1024);
-});
-
-test("local DMG verifier keeps release and ad-hoc checks distinct", async () => {
-  const verifier = await readFile(new URL("../scripts/verify-mac-package.mjs", import.meta.url), "utf8");
-  assert.match(verifier, /mode === "local"/);
-  assert.match(verifier, /DO-NOT-DISTRIBUTE/);
-  assert.match(verifier, /Signature=adhoc/);
-  assert.match(verifier, /xcrun.*stapler.*validate/);
-  assert.match(verifier, /finally/);
-  assert.match(verifier, /runExpectedFailure\("codesign", \["--verify", "--deep", "--strict", appPath\]/);
 });

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createBackup } from "../src/backup.mjs";
+import { captureIntent } from "./helpers/capture-intent.mjs";
 import { createIntent, getCapturePaths, prepareResumeIntent, readCurrentIntent, transitionIntent } from "../src/backup-coordinator.mjs";
 
 const repo = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -126,16 +127,6 @@ async function seedSafeColdRestore(userData, root) {
   current = (await prepareResumeIntent({ userData, expectedToken: current.token, expectedRevision: current.revision })).intent;
   await writeFile(join(userData, "pending-restore.json"), JSON.stringify({ version: 1, status: "failed", selected: oldSelected, safetyBackup: current.capturedBackupPath, coldToken: old.token, recoveryRequired: false, error: { message: "The previous Restore failed and its rollback completed." } }));
   return { old, freshSelected };
-}
-
-async function captureIntent(userData, intent) {
-  let current = await transitionIntent({ userData, expectedToken: intent.token, expectedRevision: intent.revision, nextState: "capturing" });
-  const capture = getCapturePaths(userData, intent);
-  const published = await createBackup(userData, join(userData, "test-capture-stage"));
-  await mkdir(capture.backupRoot, { recursive: true });
-  await cp(published, capture.finalBackupPath, { recursive: true });
-  current = await transitionIntent({ userData, expectedToken: intent.token, expectedRevision: current.revision, nextState: "captured", capturedBackupPath: capture.finalBackupPath });
-  return current;
 }
 
 test("missing and corrupt Backups are marked failed once and startup continues", async () => {
@@ -422,7 +413,7 @@ test("a safe failed cold Restore survives replacement approval until fresh captu
   assert.notEqual(requested.token, old.token);
   await assert.rejects(createIntent({ userData, operation: "restore", payload: { selectedBackup: freshSelected } }), /already pending/);
 
-  const captured = await captureIntent(userData, requested);
+  const captured = await captureIntent(userData, requested, { seedFileName: null });
   assert.equal(captured.state, "captured");
   const second = await launch(h, userData, { R05_REAL_COORDINATOR: "1" });
   assert.equal(second.windows, 1);
