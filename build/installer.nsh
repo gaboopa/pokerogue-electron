@@ -102,15 +102,10 @@ Function InstallerUpdateProgress
   ${If} $InstallerPercentLabel != ""
     SendMessage $InstallerPercentLabel ${WM_SETTEXT} 0 "STR:$0%"
   ${EndIf}
-  ${If} $0 < 5
+  ${If} $0 < 75
     SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Installing application files"
-    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Now] Installing   [    ] Finishing"
-  ${ElseIf} $0 < 75
-    SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Installing application files"
-    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Now] Installing   [    ] Finishing"
   ${ElseIf} $0 < 96
     SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Installing offline game content"
-    SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Now] Installing   [    ] Finishing"
   ${ElseIf} $0 < 100
     SendMessage $InstallerStatusLabel ${WM_SETTEXT} 0 "STR:Creating shortcuts"
     SendMessage $InstallerStepsLabel ${WM_SETTEXT} 0 "STR:[Done] Starting    [Done] Preparing$\r$\n[Done] Installing   [Now] Finishing"
@@ -136,18 +131,9 @@ Function InstallerProgressPageLeave
     nsDialogs::KillTimer InstallerUpdateProgress
     StrCpy $InstallerProgressTimerStarted "0"
   ${EndIf}
-  ${If} $InstallerStepsLabel != ""
-    System::Call 'user32::DestroyWindow(p $InstallerStepsLabel)'
-    StrCpy $InstallerStepsLabel ""
-  ${EndIf}
-  ${If} $InstallerPercentLabel != ""
-    System::Call 'user32::DestroyWindow(p $InstallerPercentLabel)'
-    StrCpy $InstallerPercentLabel ""
-  ${EndIf}
-  ${If} $InstallerStatusLabel != ""
-    System::Call 'user32::DestroyWindow(p $InstallerStatusLabel)'
-    StrCpy $InstallerStatusLabel ""
-  ${EndIf}
+  StrCpy $InstallerStepsLabel ""
+  StrCpy $InstallerPercentLabel ""
+  StrCpy $InstallerStatusLabel ""
   StrCpy $InstallerProgressBar ""
 FunctionEnd
 
