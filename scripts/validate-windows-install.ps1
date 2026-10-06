@@ -189,7 +189,7 @@ try {
   $cheatsPath = Join-Path $appDataPath 'cheats.json'
   $sentinelValue | Set-Content -LiteralPath $sentinelPath -NoNewline -Encoding utf8
   '{"W":"ArrowUp","A":"ArrowLeft"}' | Set-Content -LiteralPath $keymapPath -NoNewline -Encoding utf8
-  '{"schemaVersion":1,"config":{"enabled":false},"usage":{"everEnabled":false,"lastEnabledAt":null,"lastAppliedAt":null,"applyCount":0}}' | Set-Content -LiteralPath $cheatsPath -NoNewline -Encoding utf8
+  '{"schemaVersion":1,"config":{"enabled":false}}' | Set-Content -LiteralPath $cheatsPath -NoNewline -Encoding utf8
   $preservedFiles = @($sentinelPath, $keymapPath, $cheatsPath)
   $beforeHashes = @{}
   foreach ($path in $preservedFiles) {

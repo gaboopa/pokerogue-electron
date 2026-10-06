@@ -55,11 +55,10 @@ test("malformed cheat document values load fresh neutral documents", async t => 
     assert.deepEqual(second, emptyCheatDocument());
     assert.notStrictEqual(first.config, second.config);
     assert.notStrictEqual(first.config.pokeballs, second.config.pokeballs);
-    assert.notStrictEqual(first.usage, second.usage);
   }
 });
 
-test("valid cheat config and usage fields keep their existing normalization", async t => {
+test("legacy usage fields are ignored while stored cheat config loads", async t => {
   const path = await fixture(t);
   await writeFile(path, JSON.stringify({
     schemaVersion: 99,
@@ -71,7 +70,7 @@ test("valid cheat config and usage fields keep their existing normalization", as
   assert.equal(document.config.enabled, true);
   assert.equal(document.config.minimumMoney, 25);
   assert.equal(Object.hasOwn(document.config, "unknown"), false);
-  assert.deepEqual(document.usage, { everEnabled: true, lastEnabledAt: "2026-08-01T12:00:00.000Z", lastAppliedAt: null, applyCount: 3 });
+  assert.deepEqual(document.config, validateCheatConfig({ enabled: true, minimumMoney: 25, unknown: "ignored" }));
 });
 
 test("loading and resetting a null cheat document persists neutral state and relaunches", async t => {
@@ -93,7 +92,6 @@ test("loading and resetting a null cheat document persists neutral state and rel
   assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
     schemaVersion: 1,
     config: NEUTRAL_CHEATS,
-    usage: { everEnabled: false, lastEnabledAt: null, lastAppliedAt: result.document.usage.lastAppliedAt, applyCount: 1 },
   });
 });
 
@@ -108,14 +106,14 @@ test("missing and syntax-invalid documents recover while other read errors propa
   await assert.rejects(loadCheatDocument(path), error => error.code !== "ENOENT" && !(error instanceof SyntaxError));
 });
 
-test("enabled changes confirm, back up, persist metadata, then relaunch", async t => {
+test("enabled changes confirm, back up, persist config, then relaunch", async t => {
   const path = await fixture(t); const calls = [];
   const result = await applyCheatConfiguration({
-    path, requested: MAXIMUM_FUN_CHEATS, confirm: async () => { calls.push("confirm"); return true; }, backup: async () => calls.push("backup"), relaunch: async () => calls.push("relaunch"), now: () => new Date("2026-08-01T12:00:00Z"),
+    path, requested: MAXIMUM_FUN_CHEATS, confirm: async () => { calls.push("confirm"); return true; }, backup: async () => calls.push("backup"), relaunch: async () => calls.push("relaunch"),
   });
   assert.equal(result.applied, true); assert.deepEqual(calls, ["confirm", "backup", "relaunch"]);
   const stored = JSON.parse(await readFile(path, "utf8"));
-  assert.deepEqual(stored.usage, { everEnabled: true, lastEnabledAt: "2026-08-01T12:00:00.000Z", lastAppliedAt: "2026-08-01T12:00:00.000Z", applyCount: 1 });
+  assert.deepEqual(stored, { schemaVersion: 1, config: MAXIMUM_FUN_CHEATS });
 });
 
 test("cancel and backup failure leave the existing configuration untouched", async t => {
@@ -127,14 +125,14 @@ test("cancel and backup failure leave the existing configuration untouched", asy
   assert.equal(await readFile(path, "utf8"), before);
 });
 
-test("a queued cold Backup defers cheat writes, then a verified continuation preserves usage ordering", async t => {
+test("a queued cold Backup defers cheat writes, then a verified continuation persists and relaunches", async t => {
   const path = await fixture(t); let relaunched = false;
   const queued = await applyCheatConfiguration({ path, requested: MAXIMUM_FUN_CHEATS, confirm: async () => true, backup: async () => ({ deferred: true }), relaunch: async () => assert.fail() });
   assert.deepEqual(queued, { applied: false, reason: "backup-pending" });
   assert.deepEqual(await loadCheatDocument(path), emptyCheatDocument());
-  const resumed = await applyCheatConfiguration({ path, requested: MAXIMUM_FUN_CHEATS, backupCompleted: true, relaunch: async () => { relaunched = true; }, now: () => new Date("2026-08-01T12:00:00Z") });
+  const resumed = await applyCheatConfiguration({ path, requested: MAXIMUM_FUN_CHEATS, backupCompleted: true, relaunch: async () => { relaunched = true; } });
   assert.equal(resumed.applied, true); assert.equal(relaunched, true);
-  assert.deepEqual((await loadCheatDocument(path)).usage, { everEnabled: true, lastEnabledAt: "2026-08-01T12:00:00.000Z", lastAppliedAt: "2026-08-01T12:00:00.000Z", applyCount: 1 });
+  assert.deepEqual((await loadCheatDocument(path)).config, MAXIMUM_FUN_CHEATS);
 });
 
 test("disabled-to-disabled updates need no backup but still persist and relaunch", async t => {

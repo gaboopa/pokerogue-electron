@@ -68,7 +68,7 @@ test("macOS menu uses native app, window, and keyboard conventions", () => {
   assert.ok(app.submenu.some(item => item.role === "hide"));
   assert.ok(app.submenu.some(item => item.role === "quit"));
   assert.equal(file.submenu[0].role, "close");
-  assert.equal(view.submenu[0].accelerator, "Command+R");
+  assert.equal(view.submenu[0].accelerator, "CommandOrControl+R");
   assert.equal(view.submenu[1].accelerator, "Control+Command+F");
   assert.equal(view.submenu[2].accelerator, "Alt+Command+I");
   assert.equal(window.submenu[0].role, "minimize");

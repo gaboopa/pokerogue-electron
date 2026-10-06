@@ -389,8 +389,6 @@ test("captured cheat continuation writes metadata and relaunches without opening
   assert.equal(state.coldSnapshot.games, 0);
   const stored = JSON.parse(state.coldSnapshot.stored);
   assert.equal(stored.config.enabled, true);
-  assert.equal(stored.usage.applyCount, 1);
-  assert.equal(stored.usage.everEnabled, true);
   assert.ok(state.coldSnapshot.transitions.some(intent => intent.state === "completed"));
   assert.deepEqual(state.relaunchSnapshots, [{ current: null, clearCalls: 1 }]);
   assert.deepEqual(state.quitSnapshots, [{ current: null, clearCalls: 1 }]);

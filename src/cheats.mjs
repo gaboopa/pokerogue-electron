@@ -57,23 +57,16 @@ export function validateCheatConfig(value) {
 }
 
 export function emptyCheatDocument() {
-  return { schemaVersion: CHEAT_SCHEMA_VERSION, config: structuredClone(NEUTRAL_CHEATS), usage: { everEnabled: false, lastEnabledAt: null, lastAppliedAt: null, applyCount: 0 } };
+  return { schemaVersion: CHEAT_SCHEMA_VERSION, config: structuredClone(NEUTRAL_CHEATS) };
 }
 
 export async function loadCheatDocument(path) {
   try {
     const stored = JSON.parse(await readFile(path, "utf8"));
     if (!stored || typeof stored !== "object" || Array.isArray(stored)) return emptyCheatDocument();
-    const base = emptyCheatDocument();
     return {
       schemaVersion: CHEAT_SCHEMA_VERSION,
       config: validateCheatConfig(stored.config),
-      usage: {
-        everEnabled: stored.usage?.everEnabled === true,
-        lastEnabledAt: typeof stored.usage?.lastEnabledAt === "string" ? stored.usage.lastEnabledAt : null,
-        lastAppliedAt: typeof stored.usage?.lastAppliedAt === "string" ? stored.usage.lastAppliedAt : null,
-        applyCount: integer(stored.usage?.applyCount, base.usage.applyCount, 0, Number.MAX_SAFE_INTEGER),
-      },
     };
   } catch (error) {
     if (error.code === "ENOENT" || error instanceof SyntaxError) return emptyCheatDocument();
@@ -92,7 +85,7 @@ export async function writeCheatDocument(path, document) {
   }
 }
 
-export async function applyCheatConfiguration({ path, requested, confirm, backup, relaunch, backupCompleted = false, now = () => new Date() }) {
+export async function applyCheatConfiguration({ path, requested, confirm, backup, relaunch, backupCompleted = false }) {
   const current = await loadCheatDocument(path);
   const config = validateCheatConfig(requested);
   if (!backupCompleted && (current.config.enabled || config.enabled)) {
@@ -100,17 +93,7 @@ export async function applyCheatConfiguration({ path, requested, confirm, backup
     const result = await backup(config);
     if (result?.deferred === true) return { applied: false, reason: "backup-pending" };
   }
-  const timestamp = now().toISOString();
-  const document = {
-    schemaVersion: CHEAT_SCHEMA_VERSION,
-    config,
-    usage: {
-      everEnabled: current.usage.everEnabled || config.enabled,
-      lastEnabledAt: config.enabled ? timestamp : current.usage.lastEnabledAt,
-      lastAppliedAt: timestamp,
-      applyCount: current.usage.applyCount + 1,
-    },
-  };
+  const document = { schemaVersion: CHEAT_SCHEMA_VERSION, config };
   await writeCheatDocument(path, document);
   await relaunch();
   return { applied: true, document };
