@@ -92,6 +92,8 @@ Gameplay remains available if you are offline or GitHub cannot be reached.
 
 ## Troubleshooting
 
+When opening an issue, use **Copy Diagnostic Report** from the application menu and paste the report into the issue.
+
 ### Windows says the app is from an unknown publisher
 
 The installer is currently unsigned. Confirm that it came from the [official Releases page for this repository](https://github.com/gaboopa/pokerogue-electron/releases), then use **More info → Run anyway** if you want to continue.
