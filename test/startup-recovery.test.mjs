@@ -78,7 +78,8 @@ async function harness() {
     export async function revalidateResumingUpdate() { throw new Error("Unexpected Update continuation"); }
     export async function clearTerminalIntent() { current = null; return true; }`);
   await writeFile(retention, `export async function pruneAutomaticBackups() { return { removed: [], errors: [] }; }
-    export async function pruneUpdateDownloads() { return { removed: [], errors: [] }; }`);
+    export async function pruneUpdateDownloads() { return { removed: [], errors: [] }; }
+    export async function offerOldInstallers() { return { scanned: false, moved: 0, failed: 0 }; }`);
   await writeFile(fsStub, `import * as fs from "node:fs/promises";
     export const mkdir = fs.mkdir;
     export const readFile = async (p, ...a) => { if (process.env.R05_FAIL_READ && String(p).endsWith("pending-restore.json")) throw Object.assign(new Error("marker read failed"), { code: "EACCES" }); return fs.readFile(p, ...a); };

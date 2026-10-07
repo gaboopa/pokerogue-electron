@@ -139,7 +139,7 @@ If a selected Backup is missing or fails verification, the app records the faile
 
 ### Why is an older installer still in my Downloads folder?
 
-Updating replaces the installed application, but it does not delete files you downloaded. You can safely delete older `PokeRogue-Offline-*-windows-x64.exe` files yourself after the newer version is installed and working.
+After an Update, PokéRogue Electron may offer to move older installers from your Downloads folder to the Recycle Bin (Trash on macOS) the first time you launch the new version. Choose **Keep** to leave them there; the app will not ask again until the next version.
 
 ### Why is an event or Egg Gacha rotation different from the online game?
 
@@ -155,6 +155,7 @@ You can keep playing. Check your connection and try again later, or download the
 - The game window cannot access websites, WebSockets, official game APIs, popups, or external navigation.
 - Only the update check goes online, and only to GitHub's release hosts.
 - Updates start only when you ask and are verified before they are opened.
+- The app looks only at file names in your Downloads folder that match its own installer names, and moves nothing without asking.
 
 The source code for the wrapper and its update verification is available in this repository for review.
 

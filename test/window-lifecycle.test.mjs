@@ -108,7 +108,8 @@ async function createHarness() {
     export async function downloadVerified() { globalThis.__r06.downloads = (globalThis.__r06.downloads ?? 0) + 1; return process.env.R06_USER_DATA + "/Updates/setup.exe"; }`);
   await writeFile(retention, `const record = (kind, root, arg) => { (globalThis.__r06.prunes ??= []).push({ kind, root, arg }); if (process.env.R06_PRUNE_THROW) throw new Error("injected prune failure"); return { removed: [], errors: [{ path: root, message: "injected entry error" }] }; };
     export async function pruneAutomaticBackups(root, keep) { return record("backups", root, keep); }
-    export async function pruneUpdateDownloads(root, version) { return record("updates", root, version); }`);
+    export async function pruneUpdateDownloads(root, version) { return record("updates", root, version); }
+    export async function offerOldInstallers() { return { scanned: false, moved: 0, failed: 0 }; }`);
   await writeFile(keymap, `let calls = 0; let mtimeReads = 0;
     export async function loadKeymap() { calls++; if (calls === 2 && process.env.R06_DELAY_KEYMAP) { globalThis.__r06.signalKeymapStarted(); await globalThis.__r06.keymapGate; } return []; }
     export async function keymapModifiedAt() { return ++mtimeReads === 1 ? 1 : 2; }
