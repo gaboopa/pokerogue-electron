@@ -10,6 +10,7 @@ function render(config) {
   for (const id of ballIds) byId(id).value = config.pokeballs[id];
   byId("state").textContent = config.enabled ? "CHEATS ACTIVE" : "VANILLA";
   byId("state").classList.toggle("active", config.enabled);
+  byId("groups").classList.toggle("disabled", !config.enabled);
 }
 
 function collect() {
@@ -43,6 +44,7 @@ byId("maximum").addEventListener("click", () => run(async () => {
 byId("reset").addEventListener("click", () => run(() => bridge.reset()));
 byId("apply").addEventListener("click", () => run(() => bridge.applyConfig(collect())));
 byId("cancel").addEventListener("click", () => bridge.close());
+byId("window-close").addEventListener("click", () => bridge.close());
 byId("enabled").addEventListener("change", () => render({ ...collect(), enabled: byId("enabled").checked }));
 if (bridge) run(() => bridge.load());
 else {

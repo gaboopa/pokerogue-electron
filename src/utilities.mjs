@@ -7,8 +7,8 @@ export const WEB_UTILITIES = Object.freeze([
   { label: "Smogon", accelerator: "CommandOrControl+Shift+S", url: "https://www.smogon.com/dex/sv/pokemon/" },
 ]);
 export const CHART_UTILITIES = Object.freeze([
-  { id: "type-chart", label: "Type Chart", accelerator: "CommandOrControl+Shift+Y", asset: "type-chart.png", width: 670, height: 1000 },
-  { id: "horizontal-type-chart", label: "Horizontal Type Chart", accelerator: "CommandOrControl+Shift+H", asset: "type-chart-2.png", width: 1300, height: 600 },
+  { id: "type-chart", label: "Type Chart", accelerator: "CommandOrControl+Shift+Y", shortcut: "Y", asset: "type-chart.png", width: 670, height: 1000 },
+  { id: "horizontal-type-chart", label: "Horizontal Type Chart", accelerator: "CommandOrControl+Shift+H", shortcut: "H", asset: "type-chart-2.png", width: 1300, height: 600 },
 ]);
 export function createUtilitiesSubmenu({ openExternal, openChart }) {
   return [...WEB_UTILITIES.map(item => ({ label: item.label, accelerator: item.accelerator, click: () => openExternal(item.url) })), { type: "separator" }, ...CHART_UTILITIES.map(item => ({ label: item.label, accelerator: item.accelerator, click: () => openChart(item) }))];

@@ -15,7 +15,7 @@ export function createBackupController({ moduleRoot, backupRoot, icon, getMainWi
   function openWindow() {
     if (backupWindow && !backupWindow.isDestroyed()) { backupWindow.show(); backupWindow.focus(); return; }
     backupWindow = new BrowserWindow({
-      width: 760, height: 520, minWidth: 620, minHeight: 400, show: false, autoHideMenuBar: true, title: "Backups",
+      width: 800, height: 560, minWidth: 680, minHeight: 440, show: false, autoHideMenuBar: true, title: "Backups", frame: false,
       parent: getMainWindow() ?? undefined, ...(icon ? { icon } : {}),
       webPreferences: { preload: join(moduleRoot, "src", "backup-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
     });
