@@ -1,4 +1,6 @@
-export const PRODUCT_NAME = "PokeRogue Offline";
+export const PRODUCT_NAME = "PokeRogue Electron";
+// On-disk folder name; must never change.
+export const STORAGE_DIRECTORY_NAME = "PokeRogue Offline";
 export const APP_ORIGIN = "app://game";
 export const AUTOMATIC_BACKUPS_KEPT = 5;
 export const BACKUP_TOKEN_PATTERN = /^[a-f0-9]{64}$/;

@@ -1,4 +1,4 @@
-# PokeRogue Offline rules
+# PokeRogue Electron rules
 
 - The worktree's `node_modules` is a junction to the main checkout's `node_modules`; anything written through it changes the main install. Never run `npm install`, `npm ci`, `npm update` or `npm rebuild`, and never modify `node_modules`.
 - Never delete the worktree or anything in it recursively (`rm -rf`, `rmdir /s`, `Remove-Item -Recurse`, `git worktree remove`, `git clean -x`): these can follow the junction and delete the main install. Delete files one at a time by exact path (`Remove-Item -LiteralPath <file>` or `del <file>`), never recursively. Do not use git commands that write the index (`git rm`, `git add`, `git mv`, `git stash`): the sandbox cannot write the worktree's index, and staging is done at `luna accept`. Only `luna clean` removes a worktree.

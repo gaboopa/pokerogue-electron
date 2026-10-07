@@ -142,7 +142,7 @@ async function switchProfile(name) {
   if (await profileSwitchBusy()) { await showProfileBusy(); createMenu(); return; }
   const result = await showMessageBox({
     type: "question", title: "Switch profile", message: `Switch to "${name ?? "Default"}"?`,
-    detail: "PokeRogue Offline will restart. Each profile has its own Save data, cheat settings and Backups.",
+    detail: "PokeRogue Electron will restart. Each profile has its own Save data, cheat settings and Backups.",
     buttons: ["Switch and Restart", "Cancel"], defaultId: 1, cancelId: 1, noLink: true,
   });
   if (result.response !== 0) { createMenu(); return; }
@@ -311,7 +311,7 @@ async function requestManualBackup() {
   }
   if (backupRequestPromise) return backupRequestPromise;
   backupRequestActive = true;
-  const choice = showMessageBox({ type: "warning", title: "Restart to back up saves", message: "PokeRogue Offline must close briefly to make a consistent Backup.", detail: "Choose Restart to create the Backup, or Cancel to keep playing.", buttons: ["Restart and Back Up", "Cancel"], defaultId: 0, cancelId: 1 });
+  const choice = showMessageBox({ type: "warning", title: "Restart to back up saves", message: "PokeRogue Electron must close briefly to make a consistent Backup.", detail: "Choose Restart to create the Backup, or Cancel to keep playing.", buttons: ["Restart and Back Up", "Cancel"], defaultId: 0, cancelId: 1 });
   backupRequestPromise = (async () => {
     const answer = await choice;
     if (answer.response !== 0) { backupRequestActive = false; return { backedUp: false, cancelled: true }; }
@@ -378,7 +378,7 @@ async function resumeColdBackupIntent() {
       app.quit();
       return;
     }
-    const install = await showMessageBox({ type: "info", title: "Update downloaded", message: process.platform === "darwin" ? "Open the DMG, drag PokeRogue Offline into Applications, and replace the existing copy. macOS may ask you to approve this unsigned build in System Settings." : "Close the game and run the installer to update.", detail: resumed.continuation.installerPath, buttons: ["Open Update", "Later"], defaultId: 0, cancelId: 1 });
+    const install = await showMessageBox({ type: "info", title: "Update downloaded", message: process.platform === "darwin" ? "Open the DMG, drag PokeRogue Electron into Applications, and replace the existing copy. macOS may ask you to approve this unsigned build in System Settings." : "Close the game and run the installer to update.", detail: resumed.continuation.installerPath, buttons: ["Open Update", "Later"], defaultId: 0, cancelId: 1 });
     if (install.response === 0) {
       const verified = await revalidateResumingUpdate({ userData, expectedToken: current.token, expectedRevision: resumed.intent.revision });
       const openError = await shell.openPath(verified.installerPath);
@@ -413,7 +413,7 @@ async function chooseAndRestore(parent) {
 
 async function restoreSelectedBackup(selected, parent) {
   await validateBackup(selected);
-  const restart = await showMessageBox({ type: "warning", title: "Restart to restore Backup", message: "PokeRogue Offline must close briefly to create a consistent safety Backup before restoring.", detail: "Choose Restart to continue, or Cancel to keep your current Save data.", buttons: ["Restart and Restore", "Cancel"], defaultId: 0, cancelId: 1 }, parent);
+  const restart = await showMessageBox({ type: "warning", title: "Restart to restore Backup", message: "PokeRogue Electron must close briefly to create a consistent safety Backup before restoring.", detail: "Choose Restart to continue, or Cancel to keep your current Save data.", buttons: ["Restart and Restore", "Cancel"], defaultId: 0, cancelId: 1 }, parent);
   if (restart.response !== 0) return { restored: false, cancelled: true };
   // Later dialogs belong to the game window; an open child window would cover them.
   if (parent && parent !== getLiveMainWindow() && !parent.isDestroyed()) parent.close();

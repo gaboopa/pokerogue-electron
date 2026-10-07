@@ -105,7 +105,7 @@ async function launchPackage({ exe, root, userData, remotePort, firstInspectorPo
   }
 }
 
-const clickMenu = (current, label) => current.app.debuggerClient.evaluate(`globalThis.__r20ClickMenu("PokeRogue Offline", ${JSON.stringify(label)})`);
+const clickMenu = (current, label) => current.app.debuggerClient.evaluate(`globalThis.__r20ClickMenu("PokeRogue Electron", ${JSON.stringify(label)})`);
 
 async function runRequestedFlow(state, operation, trigger, completionTitle) {
   const sourcePid = state.app.pid;

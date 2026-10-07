@@ -1,6 +1,6 @@
 # Development guide
 
-This document covers development and release maintenance for PokéRogue Offline. Players looking to install the app should start with [README.md](README.md).
+This document covers development and release maintenance for PokéRogue Electron. Players looking to install the app should start with [README.md](README.md).
 
 ## Repository layout
 
@@ -120,7 +120,7 @@ npm run release:manifest -- --base release-manifest.json \
 
 ## Save compatibility
 
-Do not change the application ID (`com.gaboopa.pokerogueoffline`), product name, default profile's Electron `userData` location, or `app://game` origin after release without implementing and testing a storage migration. The default profile's location is the one that must never move. Named profiles live under `Profiles/`.
+The display name is `PokeRogue Electron`; the default profile's `userData` stays under `appData/STORAGE_DIRECTORY_NAME`, where `STORAGE_DIRECTORY_NAME` is permanently `PokeRogue Offline`. Do not change `STORAGE_DIRECTORY_NAME`, the application ID (`com.gaboopa.pokerogueoffline`), or the artifact names (`PokeRogue-Offline-${version}-windows-x64.exe` and `PokeRogue-Offline-${version}-macos-arm64.dmg`) without a tested storage migration. Keep the `app://game` origin stable. Named profiles live under `Profiles/`.
 
 The NSIS uninstaller preserves application data. Native backups include Chromium local storage, IndexedDB, and session storage, carry a deterministic checksum, and restore transactionally with rollback.
 
@@ -128,7 +128,7 @@ The NSIS uninstaller preserves application data. Native backups include Chromium
 
 New Backups use schema version 2. Their SHA-256 checksum covers the canonical storage inventory, creation time, and a length-framed data tree. Restore rejects missing, duplicate, unexpected, or symbolic-link data entries before changing Save data. An empty snapshot is valid only when its data directory is also empty; restoring it leaves current storage directories alone.
 
-PokeRogue Offline can also restore valid schema version 1 Backups after checking their exact storage inventory and original data-tree checksum. Version 1 checksums did not cover manifest metadata, so fields such as the creation time have weaker integrity than version 2 metadata.
+PokeRogue Electron can also restore valid schema version 1 Backups after checking their exact storage inventory and original data-tree checksum. Version 1 checksums did not cover manifest metadata, so fields such as the creation time have weaker integrity than version 2 metadata.
 
 ## Security invariants
 

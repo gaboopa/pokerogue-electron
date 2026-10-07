@@ -6,7 +6,7 @@ import { createMenuTemplate } from "../src/menu.mjs";
 test("desktop reload, fullscreen, and developer shortcuts remain registered", () => {
   const menu = createMenuTemplate({
     isMac: false,
-    productName: "PokeRogue Offline",
+    productName: "PokeRogue Electron",
     onCheckForUpdates() {},
     onBackup() {},
     onRestore() {},

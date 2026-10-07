@@ -1,4 +1,4 @@
-# PokéRogue Offline
+# PokéRogue Electron
 
 Play [PokéRogue](https://github.com/pagefaultgames/pokerogue) as a standalone desktop app, with no internet connection required during gameplay.
 
@@ -7,9 +7,11 @@ Play [PokéRogue](https://github.com/pagefaultgames/pokerogue) as a standalone d
 > [!IMPORTANT]
 > This is an unofficial community project. It is not made by, endorsed by, or affiliated with the PokéRogue developers, Nintendo, Game Freak, or The Pokémon Company.
 
+Formerly PokéRogue Offline. Existing saves stay where they are, and download file names still begin with `PokeRogue-Offline`.
+
 ## What does this version do?
 
-PokéRogue Offline packages the browser game as a desktop application. The complete game and its assets are installed on your computer, and the game window cannot reach the network.
+PokéRogue Electron packages the browser game as a desktop application. The complete game and its assets are installed on your computer, and the game window cannot reach the network.
 
 On top of the game, it adds:
 
@@ -27,9 +29,9 @@ There are no online accounts, cloud saves, leaderboards, telemetry, or connectio
 1. Open the [latest release](https://github.com/gaboopa/pokerogue-electron/releases/latest).
 2. Download the file ending in `windows-x64.exe`.
 3. Open the downloaded installer.
-4. Follow the installation prompts, then launch **PokéRogue Offline**.
+4. Follow the installation prompts, then launch **PokéRogue Electron**.
 
-If PokéRogue Offline is already installed, the installer replaces it. Your saves are stored elsewhere and are kept.
+If PokéRogue Electron is already installed, the installer replaces it. Your saves are stored elsewhere and are kept.
 
 Windows may warn that the publisher is unknown because releases are not code-signed. If you downloaded the installer from this repository's Releases page, choose **More info**, review the filename, and then choose **Run anyway**.
 
@@ -50,6 +52,8 @@ npm run package:mac:local
 
 The local command downloads the exact game revision, installs locked dependencies, runs tests, builds an ad-hoc signed Apple Silicon DMG, verifies it, and opens it when complete. The resulting DMG is intended only for the Mac that built it and must not be redistributed.
 
+The renamed app does not replace an older app named `PokeRogue Offline` in Applications. After confirming the new app opens your saves, delete the old app.
+
 ### macOS requirements
 
 - Apple Silicon Mac (M1 or newer)
@@ -60,7 +64,7 @@ The local command downloads the exact game revision, installs locked dependencie
 
 Your saves are stored separately from the installed application, so installing a newer version or reinstalling the app normally keeps your progress.
 
-The **PokéRogue Offline** application menu has:
+The **PokéRogue Electron** application menu has:
 
 - **Back Up Saves…** makes a Backup. The app restarts briefly to do it. The Backup's folder name shows when it was requested (UTC) and why (manual, update, restore or cheat).
 - **Restore Backup…** lists your Backups with the date, the reason and the result of an integrity check. **Choose Folder…** restores a Backup kept somewhere else.
@@ -90,7 +94,7 @@ Turning cheats on or off makes a Backup first and then restarts the app. Progres
 
 ## Updating
 
-The app never checks silently. Select **PokéRogue Offline → Check for Updates** when you want to check.
+The app never checks silently. Select **PokéRogue Electron → Check for Updates** when you want to check.
 
 When an update is available, the app:
 
@@ -105,7 +109,7 @@ Gameplay remains available if you are offline or GitHub cannot be reached.
 
 ## Troubleshooting
 
-When you open an issue, choose **PokéRogue Offline → Copy Diagnostic Report** and paste the result. It contains no file paths, names or save data.
+When you open an issue, choose **PokéRogue Electron → Copy Diagnostic Report** and paste the result. It contains no file paths, names or save data.
 
 ### Windows says the app is from an unknown publisher
 

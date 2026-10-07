@@ -29,7 +29,7 @@ async function createCacheFixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   const buildConfig = {
     appId: "com.example.fixture",
-    productName: "PokeRogue Offline",
+    productName: "PokeRogue Electron",
     asar: true,
     files: ["src/**/*", "package.json", "build/icon.ico"],
     extraResources: [
@@ -59,7 +59,7 @@ function createMockCacheBuilder(root, calls) {
   return async options => {
     calls.push(options);
     const prepackaged = join(options.config.directories.output, "win-unpacked");
-    await writeFixtureFile(prepackaged, "PokeRogue Offline.exe", "exe");
+    await writeFixtureFile(prepackaged, "PokeRogue Electron.exe", "exe");
     await writeFixtureFile(prepackaged, "resources/app.asar", "asar");
     return [];
   };

@@ -62,7 +62,7 @@ export async function verifyMacPackage(dmgPath, { mode = "release" } = {}) {
     const resourceEntries = await readdir(resourcesPath, { withFileTypes: true });
     const iconName = iconFile.trim() || resourceEntries.find(entry => entry.name.toLowerCase().endsWith(".icns"))?.name || "";
     if (bundleIdentifier.trim() !== "com.gaboopa.pokerogueoffline") throw new Error(`Unexpected bundle identifier: ${bundleIdentifier.trim()}`);
-    if (bundleName.trim() !== "PokeRogue Offline") throw new Error(`Unexpected bundle name: ${bundleName.trim()}`);
+    if (bundleName.trim() !== "PokeRogue Electron") throw new Error(`Unexpected bundle name: ${bundleName.trim()}`);
     const expectedVersion = JSON.parse(await readFile(join(wrapperRoot, "package.json"), "utf8")).version;
     if (bundleVersion.trim() !== expectedVersion) throw new Error(`Unexpected bundle version: ${bundleVersion.trim()}`);
     if (!minimumSystemVersion.trim()) throw new Error("Bundle is missing LSMinimumSystemVersion");

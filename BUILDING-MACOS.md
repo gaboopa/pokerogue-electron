@@ -36,7 +36,7 @@ The output is:
 release/local/PokeRogue-Offline-0.1.4-macos-arm64-LOCAL-ONLY-DO-NOT-DISTRIBUTE.dmg
 ```
 
-Drag **PokeRogue Offline** into **Applications** and launch it from there. Because the app was built on that Mac, it should not require the public-download Gatekeeper exception flow.
+Drag **PokeRogue Electron** into **Applications** and launch it from there. Because the app was built on that Mac, it should not require the public-download Gatekeeper exception flow.
 
 To build without opening Finder automatically, use:
 

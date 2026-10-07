@@ -26,7 +26,7 @@
   },
   "build": {
     "appId": "com.gaboopa.pokerogueoffline",
-    "productName": "PokeRogue Offline",
+    "productName": "PokeRogue Electron",
     "asar": true,
     "compression": "store",
     "files": [
@@ -74,7 +74,7 @@
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
       "deleteAppDataOnUninstall": false,
-      "uninstallDisplayName": "PokeRogue Offline"
+      "uninstallDisplayName": "PokeRogue Electron"
     },
     "mac": {
       "target": [

@@ -44,7 +44,7 @@ test("macOS icon source is validated when the supplied artwork is present", asyn
 });
 
 test("macOS menu uses native app, window, and keyboard conventions", () => {
-  const mac = createMenuTemplate({ isMac: true, productName: "PokeRogue Offline", ...callbacks() });
+  const mac = createMenuTemplate({ isMac: true, productName: "PokeRogue Electron", ...callbacks() });
   const app = mac[0];
   const view = mac.find(item => item.label === "View");
   const file = mac.find(item => item.label === "File");
@@ -62,7 +62,7 @@ test("macOS menu uses native app, window, and keyboard conventions", () => {
 });
 
 test("Windows menu conventions remain unchanged", () => {
-  const windows = createMenuTemplate({ isMac: false, productName: "PokeRogue Offline", ...callbacks() });
+  const windows = createMenuTemplate({ isMac: false, productName: "PokeRogue Electron", ...callbacks() });
   assert.equal(windows[0].submenu.at(-1).role, "quit");
   assert.equal(windows.some(item => item.label === "File"), false);
   const view = windows.find(item => item.label === "View");

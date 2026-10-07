@@ -75,7 +75,7 @@ async function createHarness() {
       async loadFile(path) { this.file = path; }
     }
     export const app = {
-      isPackaged: false, setName() {}, getAppPath() { return process.env.R06_APP_PATH; }, getPath(name) { return name === "userData" ? process.env.R06_USER_DATA : process.env.TEMP; }, getVersion() { return "test"; },
+      isPackaged: false, setName() {}, getAppPath() { return process.env.R06_APP_PATH; }, getPath(name) { return name === "appData" || name === "userData" || name === "sessionData" ? process.env.R06_USER_DATA : process.env.TEMP; }, getVersion() { return "test"; },
       whenReady() { return { then(callback) { Promise.resolve().then(callback).then(resolveStartup, rejectStartup); return state.startupPromise; } }; },
       on(name, callback) { state.listeners[name] = callback; }, once(name, callback) { (state.onceListeners[name] ??= []).push(callback); }, removeListener(name, callback) { state.onceListeners[name] = (state.onceListeners[name] ?? []).filter(item => item !== callback); }, relaunch(options) { state.relaunches++; state.relaunchArgs = options?.args ?? []; state.relaunchSnapshots.push({ current: state.coordinator?.getCurrent(), clearCalls: state.coordinator?.clearCalls ?? 0 }); }, quit() { state.quits++; state.quitSnapshots.push({ current: state.coordinator?.getCurrent(), clearCalls: state.coordinator?.clearCalls ?? 0 }); },
     };
@@ -341,7 +341,7 @@ test("accepted manual Backup flushes storage and launches the real bootstrap wor
   const electron = join(root, "electron.mjs");
   await writeFile(loader, `export async function resolve(specifier, context, nextResolve) { if (specifier === "electron") return { url: new URL("./electron.mjs", import.meta.url).href, shortCircuit: true }; return nextResolve(specifier, context); }`);
   await writeFile(registerLoader, `import { register } from "node:module"; register(${JSON.stringify(pathToFileURL(loader).href)});`);
-  await writeFile(electron, `export const app = { isPackaged: false, setName() {}, getAppPath() { return process.env.R06_APP_PATH; }, getPath() { return process.env.R06_USER_DATA; }, setPath() {}, requestSingleInstanceLock() { return true; }, exit(code) { process.exitCode = code; }, relaunch() {}, quit() {} }; export const dialog = { showErrorBox(title, message) { process.stderr.write(JSON.stringify({ code: "dialog", title, message }) + "\\n"); } };`);
+  await writeFile(electron, `export const app = { isPackaged: false, setName() {}, getAppPath() { return process.env.R06_APP_PATH; }, getPath(name) { return name === "appData" || name === "userData" || name === "sessionData" ? process.env.R06_USER_DATA : process.env.TEMP; }, setPath() {}, requestSingleInstanceLock() { return true; }, exit(code) { process.exitCode = code; }, relaunch() {}, quit() {} }; export const dialog = { showErrorBox(title, message) { process.stderr.write(JSON.stringify({ code: "dialog", title, message }) + "\\n"); } };`);
   const bootstrap = pathToFileURL(join(repo, "src", "bootstrap.mjs")).href;
   const result = spawnSync(process.execPath, ["--import", pathToFileURL(registerLoader).href, "-e", `import(${JSON.stringify(bootstrap)})`, ...state.coldSnapshot.args], {
     encoding: "utf8", timeout: 10000,
