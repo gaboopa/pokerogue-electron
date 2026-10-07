@@ -6,12 +6,14 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { STORAGE_DIRECTORY_NAME } from "../src/constants.mjs";
 
 import {
   attachPackaged,
   cleanupOwned,
   connectGame,
   connectCheat,
+  connectBackups,
   evalRenderer,
   sleep,
   waitForEvent,
@@ -237,8 +239,10 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
   const states = [];
   let portBase = randomInt(16_000, 48_000);
   const newProfile = async () => {
-    const profile = await mkdtemp(join(tmpdir(), "pokerogue-r20-packaged-profile-"));
-    profiles.push(profile);
+    const parent = await mkdtemp(join(tmpdir(), "pokerogue-r20-packaged-profile-"));
+    profiles.push(parent);
+    const profile = join(parent, STORAGE_DIRECTORY_NAME);
+    await mkdir(profile);
     return profile;
   };
   const launch = async (scenario, dialogResponse = 0, userData) => {
@@ -273,7 +277,22 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     state.config.restorePath = manual.backupPath;
     await state.app.debuggerClient.evaluate(`globalThis.__r20SetRestorePath(${JSON.stringify(manual.backupPath)})`);
     await seedGame(state.remotePort, "changed");
-    const restored = keep(await runRequestedFlow(state, "restore", current => clickMenu(current, "Restore Backup…"), null));
+    const restored = keep(await runRequestedFlow(state, "restore", async current => {
+      await clickMenu(current, "Restore Backup…");
+      const { debuggerClient } = await connectBackups(current.remotePort);
+      await debuggerClient.evaluate(`(async () => {
+        const deadline = Date.now() + 30000;
+        for (;;) {
+          const row = document.querySelector("#backups tr");
+          const integrity = row?.cells[2];
+          if (integrity?.textContent === "Verified") { row.click(); document.getElementById("restore").click(); return true; }
+          if (integrity?.textContent === "Failed") throw new Error("The listed Backup failed verification: " + integrity.title);
+          if (Date.now() > deadline) throw new Error("The Backups list did not verify a row in time");
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      })()`, true);
+      debuggerClient.close();
+    }, null));
     const restoredState = await readGame(restored.remotePort);
     assert.deepEqual(restoredState, {
       local: { suffix: "manual", value: "local-manual" },

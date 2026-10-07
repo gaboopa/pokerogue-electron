@@ -136,6 +136,9 @@ function installPackagedProbe(config) {
   app.setPath("userData", userData);
   app.setPath("sessionData", sessionData);
   if (app.getPath("userData") !== userData || app.getPath("sessionData") !== sessionData) throw new Error("Electron did not retain both isolated profile paths");
+  // bootstrap pins userData to <appData>/<storage folder>; answer with the isolated parent so the pin lands on this profile.
+  const originalGetPath = app.getPath.bind(app);
+  app.getPath = name => name === "appData" ? appPath.dirname(userData) : originalGetPath(name);
   process.argv = process.argv.filter(argument => !argument.startsWith("--inspect"));
   app.commandLine.appendSwitch("remote-debugging-port", String(config.remotePort));
 
@@ -357,22 +360,30 @@ async function connectGame(remotePort, expression) {
   throw new Error(`Packaged game renderer did not become ready: ${lastError?.message ?? "no app:// page"}`);
 }
 
-async function connectCheat(remotePort) {
+function connectCheat(remotePort) {
+  return connectWindow(remotePort, /cheat-window\/index\.html/i, "!!document.getElementById('enabled')", "Cheat editor");
+}
+
+function connectBackups(remotePort) {
+  return connectWindow(remotePort, /backup-window\/index\.html/i, "!!window.backupControl && !!document.getElementById('restore')", "Backups window");
+}
+
+async function connectWindow(remotePort, urlPattern, readyExpression, label) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
     try {
       const targets = await requestJson(remotePort, "/json/list");
-      const target = targets.find(value => value.type === "page" && /cheat-window\/index\.html/i.test(value.url));
+      const target = targets.find(value => value.type === "page" && urlPattern.test(value.url));
       if (target) {
         const debuggerClient = await Debugger.connect(target.webSocketDebuggerUrl);
-        if (await debuggerClient.evaluate("document.readyState === 'complete' && !!document.getElementById('enabled')")) return { debuggerClient, target };
+        if (await debuggerClient.evaluate(`document.readyState === 'complete' && ${readyExpression}`)) return { debuggerClient, target };
         debuggerClient.close();
       }
     } catch (error) { lastError = error; }
     await sleep(100);
   }
-  throw new Error(`Packaged Cheat editor did not become ready: ${lastError?.message ?? "no editor page"}`);
+  throw new Error(`Packaged ${label} did not become ready: ${lastError?.message ?? "no page"}`);
 }
 
 async function evalRenderer(remotePort, expression, awaitPromise = false) {
@@ -398,6 +409,7 @@ module.exports = {
   cleanupOwned,
   connectGame,
   connectCheat,
+  connectBackups,
   evalRenderer,
   waitForEvent,
   waitForInspector,
