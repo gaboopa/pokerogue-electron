@@ -11,3 +11,4 @@
 - Keep each file's existing line endings. `git diff` must show only real changes.
 - Stop and report on any packet stop condition instead of working around it.
 - Final report: files changed, lines added/removed (`git diff --stat`), each verification command with its exit code and pass/fail counts, and anything you left undone and why.
+- You are Luna. The "Luna" section of `AGENTS.md` is addressed to the orchestrator that hands work to you. Never run the `luna` CLI, create branches or delegate; implement the packet directly in this worktree.
