@@ -2,6 +2,7 @@ import { app, dialog } from "electron";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { BACKUP_TOKEN_PATTERN, PRODUCT_NAME } from "./constants.mjs";
+import { getUserDataPath } from "./storage-path.mjs";
 import { resolveActiveProfile } from "./profiles.mjs";
 
 const require = createRequire(import.meta.url);
@@ -84,7 +85,9 @@ function start() {
   const mode = parseArguments();
   const testSource = process.env.POKEROGUE_R17_TEST_SOURCE;
   if (testSource && (!mode.probe || app.isPackaged)) throw new Error("Disposable R17 source profile is only valid in a development probe launch");
-  const root = resolve(testSource || app.getPath("userData"));
+  const root = resolve(testSource || getUserDataPath(app.getPath("appData")));
+  require("node:fs").mkdirSync(root, { recursive: true });
+  app.setPath("userData", root);
   const rootSessionData = testSource ? root : resolve(app.getPath("sessionData"));
   setProfilePaths(root, rootSessionData);
 

@@ -28,7 +28,7 @@ export function formatDiagnosticReport(facts) {
       : `${BACKUP_INTENT_OPERATIONS.includes(facts.pending.operation) ? facts.pending.operation : unavailable} (${BACKUP_INTENT_STATES.includes(facts.pending.state) ? facts.pending.state : unavailable})`;
 
   return [
-    "PokeRogue Offline diagnostic report",
+    "PokeRogue Electron diagnostic report",
     `Version: ${version(facts.version)} (${facts.packaged === true ? "packaged" : facts.packaged === false ? "development" : unavailable})`,
     `Platform: ${["win32", "darwin", "linux", "freebsd", "openbsd", "sunos", "aix"].includes(facts.platform) ? facts.platform : unavailable} ${["x64", "arm64", "ia32", "arm", "ppc64", "s390x", "riscv64"].includes(facts.arch) ? facts.arch : unavailable}, ${typeof facts.osVersion === "string" && /^[A-Za-z][A-Za-z0-9 ._-]{0,80}$/.test(facts.osVersion) ? facts.osVersion : unavailable}`,
     `Electron ${version(facts.electron)}, Chrome ${version(facts.chrome)}, Node ${version(facts.node)}`,

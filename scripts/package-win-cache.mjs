@@ -8,7 +8,7 @@ import { wrapperRoot } from "./lib.mjs";
 export const WINDOWS_CACHE_SCHEMA_VERSION = 1;
 export const WINDOWS_CACHE_RELATIVE_PATH = "release/cache/win-x64";
 const CACHE_MARKER_NAME = "cache.json";
-const PRODUCT_EXECUTABLE = "PokeRogue Offline.exe";
+const PRODUCT_EXECUTABLE = "PokeRogue Electron.exe";
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");

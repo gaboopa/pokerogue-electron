@@ -14,7 +14,7 @@ Var InstallerProgressTimerStarted
 !macroend
 
 !macro customWelcomePage
-  !define MUI_WELCOMEPAGE_TITLE "Ready to install PokeRogue Offline?"
+  !define MUI_WELCOMEPAGE_TITLE "Ready to install PokeRogue Electron?"
   !define MUI_WELCOMEPAGE_TEXT "Click Next to begin setting up a new offline version of PokeRogue on your PC. It only takes a few moments.$\r$\n$\r$\nPlease verify you're installing the latest version! This is version: ${VERSION}"
   !insertmacro MUI_PAGE_WELCOME
 !macroend

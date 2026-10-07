@@ -9,9 +9,11 @@ foreach ($name in @('Get-FullPathWithin', 'Get-Registration', 'Invoke-SilentUnin
   $definition = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
   Invoke-Expression $definition.Extent.Text
 }
-$productName = 'PokeRogue Offline'
+$productName = 'PokeRogue Electron'
+$expectedDisplayName = $productName
+$storageDirectoryName = 'PokeRogue Offline'
 $appGuid = '9ee90960-c2e1-584d-beef-77fad84b6997'
-$location = Join-Path $env:LOCALAPPDATA 'Programs\PokeRogue Offline'
+$location = Join-Path $env:LOCALAPPDATA 'Programs\PokeRogue Electron'
 $registration = [pscustomobject]@{ DisplayName=$productName; RegistryPath="HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\$appGuid"; KeyName=$appGuid; InstallLocation='' }
 function Get-AppRegistrations { return $registration }
 function Get-ItemProperty {
@@ -39,7 +41,7 @@ Write-Output 'NSIS registry lookup and install containment checks passed without
 $auditRoot = [System.IO.Path]::GetFullPath((Join-Path $env:TEMP "nsis-wait-check-$([guid]::NewGuid().ToString('N'))"))
 $installRoot = Join-Path $auditRoot 'installation with spaces'
 New-Item -ItemType Directory -Path $installRoot | Out-Null
-$uninstaller = Join-Path $installRoot 'Uninstall PokeRogue Offline.exe'
+$uninstaller = Join-Path $installRoot 'Uninstall PokeRogue Electron.exe'
 Set-Content -LiteralPath $uninstaller -Value 'inert uninstaller fixture'
 function Invoke-SilentInstaller {
   param([string]$Path, [string]$AllowedRoot, [string[]]$Arguments)

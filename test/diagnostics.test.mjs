@@ -14,7 +14,7 @@ const completeFacts = () => ({
 
 test("formats a complete diagnostic report exactly", () => {
   assert.equal(formatDiagnosticReport(completeFacts()), [
-    "PokeRogue Offline diagnostic report",
+    "PokeRogue Electron diagnostic report",
     "Version: 0.1.4 (packaged)",
     "Platform: win32 x64, Windows 10.0.26200",
     "Electron 42.11.10, Chrome 130.0.6723.44, Node 22.15.1",
@@ -53,7 +53,7 @@ test("a named Profile is anonymized and unused facts are not copied", () => {
 
 test("Copy Diagnostic Report follows Open Save Folder in the application menu", () => {
   const menu = createMenuTemplate({
-    isMac: false, productName: "PokeRogue Offline", onCheckForUpdates() {}, onBackup() {}, onRestore() {},
+    isMac: false, productName: "PokeRogue Electron", onCheckForUpdates() {}, onBackup() {}, onRestore() {},
     onOpenSaveFolder() {}, onCopyDiagnosticReport() {}, onReload() {}, onToggleFullscreen() {}, onDeveloperTools() {},
     utilities: [], keybindings: [], cheats: [],
   });

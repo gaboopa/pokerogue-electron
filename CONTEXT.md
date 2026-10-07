@@ -1,16 +1,16 @@
-# PokeRogue Offline
+# PokeRogue Electron
 
 This context is the desktop wrapper that packages an upstream PokeRogue revision for local play. It owns the offline experience and the user's local data, not the upstream game's mechanics.
 
 ## Language
 
-**PokeRogue Offline**:
+**PokeRogue Electron**:
 The standalone desktop application that packages the upstream game for offline play.
-_Avoid_: wrapper, application
+_Avoid_: wrapper, application. "PokeRogue Offline" survives only as the storage folder name and artifact prefix.
 
 **Upstream game**:
-The PokeRogue game revision and its assets packaged by PokeRogue Offline; gameplay concepts are included here only when they explain a wrapper decision.
-_Avoid_: PokeRogue Offline, game build
+The PokeRogue game revision and its assets packaged by PokeRogue Electron; gameplay concepts are included here only when they explain a wrapper decision.
+_Avoid_: PokeRogue Electron, game build
 
 **Save data**:
 A player's locally persisted game progress and game state.
@@ -21,7 +21,7 @@ A restorable, integrity-checked snapshot of save data.
 _Avoid_: save copy, archive
 
 **Release**:
-A versioned PokeRogue Offline distributable that includes a specific upstream-game revision.
+A versioned PokeRogue Electron distributable that includes a specific upstream-game revision.
 _Avoid_: build, installer
 
 **Release contract**:

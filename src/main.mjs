@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_ORIGIN, AUTOMATIC_BACKUPS_KEPT, BACKUP_TOKEN_PATTERN, PRODUCT_NAME, UPDATE_REPOSITORY } from "./constants.mjs";
-import { pruneAutomaticBackups, pruneUpdateDownloads } from "./retention.mjs";
+import { offerOldInstallers, pruneAutomaticBackups, pruneUpdateDownloads } from "./retention.mjs";
 import { BackupRestoreError, restoreBackup, validateBackup } from "./backup.mjs";
 import { applyCheatConfiguration } from "./cheats.mjs";
 import { createCheatController } from "./cheat-main.mjs";
@@ -142,7 +142,7 @@ async function switchProfile(name) {
   if (await profileSwitchBusy()) { await showProfileBusy(); createMenu(); return; }
   const result = await showMessageBox({
     type: "question", title: "Switch profile", message: `Switch to "${name ?? "Default"}"?`,
-    detail: "PokeRogue Offline will restart. Each profile has its own Save data, cheat settings and Backups.",
+    detail: "PokeRogue Electron will restart. Each profile has its own Save data, cheat settings and Backups.",
     buttons: ["Switch and Restart", "Cancel"], defaultId: 1, cancelId: 1, noLink: true,
   });
   if (result.response !== 0) { createMenu(); return; }
@@ -311,7 +311,7 @@ async function requestManualBackup() {
   }
   if (backupRequestPromise) return backupRequestPromise;
   backupRequestActive = true;
-  const choice = showMessageBox({ type: "warning", title: "Restart to back up saves", message: "PokeRogue Offline must close briefly to make a consistent Backup.", detail: "Choose Restart to create the Backup, or Cancel to keep playing.", buttons: ["Restart and Back Up", "Cancel"], defaultId: 0, cancelId: 1 });
+  const choice = showMessageBox({ type: "warning", title: "Restart to back up saves", message: "PokeRogue Electron must close briefly to make a consistent Backup.", detail: "Choose Restart to create the Backup, or Cancel to keep playing.", buttons: ["Restart and Back Up", "Cancel"], defaultId: 0, cancelId: 1 });
   backupRequestPromise = (async () => {
     const answer = await choice;
     if (answer.response !== 0) { backupRequestActive = false; return { backedUp: false, cancelled: true }; }
@@ -378,7 +378,7 @@ async function resumeColdBackupIntent() {
       app.quit();
       return;
     }
-    const install = await showMessageBox({ type: "info", title: "Update downloaded", message: process.platform === "darwin" ? "Open the DMG, drag PokeRogue Offline into Applications, and replace the existing copy. macOS may ask you to approve this unsigned build in System Settings." : "Close the game and run the installer to update.", detail: resumed.continuation.installerPath, buttons: ["Open Update", "Later"], defaultId: 0, cancelId: 1 });
+    const install = await showMessageBox({ type: "info", title: "Update downloaded", message: process.platform === "darwin" ? "Open the DMG, drag PokeRogue Electron into Applications, and replace the existing copy. macOS may ask you to approve this unsigned build in System Settings." : "Close the game and run the installer to update.", detail: resumed.continuation.installerPath, buttons: ["Open Update", "Later"], defaultId: 0, cancelId: 1 });
     if (install.response === 0) {
       const verified = await revalidateResumingUpdate({ userData, expectedToken: current.token, expectedRevision: resumed.intent.revision });
       const openError = await shell.openPath(verified.installerPath);
@@ -413,7 +413,7 @@ async function chooseAndRestore(parent) {
 
 async function restoreSelectedBackup(selected, parent) {
   await validateBackup(selected);
-  const restart = await showMessageBox({ type: "warning", title: "Restart to restore Backup", message: "PokeRogue Offline must close briefly to create a consistent safety Backup before restoring.", detail: "Choose Restart to continue, or Cancel to keep your current Save data.", buttons: ["Restart and Restore", "Cancel"], defaultId: 0, cancelId: 1 }, parent);
+  const restart = await showMessageBox({ type: "warning", title: "Restart to restore Backup", message: "PokeRogue Electron must close briefly to create a consistent safety Backup before restoring.", detail: "Choose Restart to continue, or Cancel to keep your current Save data.", buttons: ["Restart and Restore", "Cancel"], defaultId: 0, cancelId: 1 }, parent);
   if (restart.response !== 0) return { restored: false, cancelled: true };
   // Later dialogs belong to the game window; an open child window would cover them.
   if (parent && parent !== getLiveMainWindow() && !parent.isDestroyed()) parent.close();
@@ -777,6 +777,40 @@ async function pruneStaleFiles() {
   } catch (error) { process.stderr.write(`Startup cleanup skipped: ${error.message}\n`); }
 }
 
+async function offerDownloadsCleanup() {
+  try {
+    if (startupRecoveryBlocked || startupRestarting || await readCurrentIntent({ userData: paths().userData })) return;
+    const version = app.getVersion();
+    const trashName = process.platform === "darwin" ? "Trash" : "Recycle Bin";
+    const moveLabel = process.platform === "darwin" ? "Move to Trash" : "Move to Recycle Bin";
+    const result = await offerOldInstallers({
+      statePath: join(paths().root, "installer-cleanup.json"),
+      downloadsPath: app.getPath("downloads"),
+      currentVersion: version,
+      trashItem: path => shell.trashItem(path),
+      ask: async names => {
+        const count = names.length;
+        const shown = names.slice(0, 10);
+        if (count > shown.length) shown.push(`and ${count - shown.length} more`);
+        const answer = await showMessageBox({
+          type: "question", title: "Remove old installers?",
+          message: `Move ${count} installer${count > 1 ? "s" : ""} you no longer need to the ${trashName}?`,
+          detail: `${shown.join("\n")}\n\nThey are in your Downloads folder. This version is already installed.`,
+          buttons: [moveLabel, "Keep"], defaultId: 1, cancelId: 1,
+        });
+        return answer.response === 0 ? "move" : "keep";
+      },
+    });
+    if (result.failed) {
+      const count = result.failed;
+      await showMessageBox({
+        type: "warning", title: "Some installers were not removed",
+        message: `${count} file${count > 1 ? "s" : ""} could not be moved. You can delete ${count > 1 ? "them" : "it"} yourself from your Downloads folder.`,
+      });
+    }
+  } catch (error) { process.stderr.write(`Downloads cleanup offer skipped: ${error.message}\n`); }
+}
+
 app.whenReady().then(async () => {
   await mkdir(paths().backupRoot, { recursive: true });
   await applyPendingRestore();
@@ -817,6 +851,7 @@ app.whenReady().then(async () => {
   createMenu();
   await createWindow();
   startupReady = true;
+  void offerDownloadsCleanup();
 });
 
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

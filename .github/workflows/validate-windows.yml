@@ -115,7 +115,7 @@ jobs:
 
       - name: Exercise cold Backup flows through the unchanged packaged executable
         run: |
-          $env:POKEROGUE_R20_EXE = (Resolve-Path -LiteralPath 'release/cache/win-x64/win-unpacked/PokeRogue Offline.exe').Path
+          $env:POKEROGUE_R20_EXE = (Resolve-Path -LiteralPath 'release/cache/win-x64/win-unpacked/PokeRogue Electron.exe').Path
           $env:POKEROGUE_R20_SHA256 = (Get-FileHash -LiteralPath $env:POKEROGUE_R20_EXE -Algorithm SHA256).Hash.ToLowerInvariant()
           $asar = Join-Path (Split-Path -Parent $env:POKEROGUE_R20_EXE) 'resources/app.asar'
           $env:POKEROGUE_R20_ASAR_SHA256 = (Get-FileHash -LiteralPath $asar -Algorithm SHA256).Hash.ToLowerInvariant()

@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pruneAutomaticBackups, pruneUpdateDownloads } from "../src/retention.mjs";
+import { installersToOffer, offerOldInstallers, pruneAutomaticBackups, pruneUpdateDownloads } from "../src/retention.mjs";
 
 const roots = [];
 test.after(() => Promise.all(roots.map(root => rm(root, { recursive: true, force: true }))));
@@ -114,4 +114,78 @@ test("one entry failing is reported and does not stop the rest", async () => {
   const installers = await pruneUpdateDownloads(updates, "0.1.5", locked);
   assert.deepEqual(installers.errors, [{ path: join(updates, old[0]), message: "EBUSY" }]);
   assert.deepEqual(installers.removed, [join(updates, old[1])]);
+});
+
+test("installer offer candidates accept both artifact types and browser duplicates only", () => {
+  const names = [
+    "PokeRogue-Offline-0.1.4-windows-x64.exe",
+    "PokeRogue-Offline-0.1.4-windows-x64 (1).exe",
+    "PokeRogue-Offline-0.1.4-macos-arm64.dmg",
+    "PokeRogue-Offline-0.1.4-macos-arm64 (12).dmg",
+    "PokeRogue-Offline-0.1.6-windows-x64.exe",
+    "prefix-PokeRogue-Offline-0.1.4-windows-x64.exe",
+    "PokeRogue-Offline-0.1.4-windows-x64.exe.bak",
+    "PokeRogue-Offline-0.1.4-windows-x64.exe.partial",
+    "folder/PokeRogue-Offline-0.1.4-windows-x64.exe",
+    "folder\\PokeRogue-Offline-0.1.4-windows-x64.exe",
+  ];
+  assert.deepEqual(installersToOffer(names, "0.1.5"), names.slice(0, 4));
+});
+
+test("installer cleanup records empty scans and Keep, and moves only after confirmation", async () => {
+  const root = await temp();
+  const downloads = join(root, "Downloads");
+  await mkdir(downloads);
+  const statePath = join(root, "installer-cleanup.json");
+  const state = async () => JSON.parse(await readFile(statePath, "utf8"));
+  const askNothing = async () => { throw new Error("unexpected prompt"); };
+
+  const empty = await offerOldInstallers({ statePath, downloadsPath: downloads, currentVersion: "0.1.5", ask: askNothing, trashItem() { throw new Error("unexpected trash"); } });
+  assert.deepEqual(empty, { scanned: true, moved: 0, failed: 0 });
+  assert.deepEqual(await state(), { schemaVersion: 1, askedForVersion: "0.1.5" });
+
+  await writeFile(join(downloads, "PokeRogue-Offline-0.1.4-windows-x64.exe"), "fixture");
+  let prompted;
+  const keep = await offerOldInstallers({
+    statePath, downloadsPath: downloads, currentVersion: "0.1.6",
+    ask: async names => { prompted = names; return "keep"; }, trashItem() { throw new Error("unexpected trash"); },
+  });
+  assert.deepEqual(prompted, ["PokeRogue-Offline-0.1.4-windows-x64.exe"]);
+  assert.deepEqual(keep, { scanned: true, moved: 0, failed: 0 });
+  assert.deepEqual(await state(), { schemaVersion: 1, askedForVersion: "0.1.6" });
+});
+
+test("installer cleanup records successful moves and retries after any trash failure", async () => {
+  const root = await temp();
+  const downloads = join(root, "Downloads");
+  await mkdir(downloads);
+  const filenames = ["PokeRogue-Offline-0.1.4-windows-x64.exe", "PokeRogue-Offline-0.1.5-macos-arm64.dmg"];
+  for (const filename of filenames) await writeFile(join(downloads, filename), "fixture");
+  const statePath = join(root, "installer-cleanup.json");
+  const options = { statePath, downloadsPath: downloads, currentVersion: "0.1.6", ask: async () => "move" };
+  const movedPaths = [];
+  const moved = await offerOldInstallers({ ...options, trashItem: async path => movedPaths.push(path) });
+  assert.deepEqual(moved, { scanned: true, moved: 2, failed: 0 });
+  assert.deepEqual(movedPaths.map(path => path.split(/[\\/]/).pop()), filenames);
+  assert.deepEqual(JSON.parse(await readFile(statePath, "utf8")), { schemaVersion: 1, askedForVersion: "0.1.6" });
+
+  await writeFile(statePath, "{");
+  const failed = await offerOldInstallers({ ...options, trashItem: async path => { if (path.endsWith(filenames[1])) throw new Error("fixture failure"); } });
+  assert.deepEqual(failed, { scanned: true, moved: 1, failed: 1 });
+  assert.equal(await readFile(statePath, "utf8"), "{");
+});
+
+test("installer cleanup treats a malformed state as unasked and skips scans for an asked version", async () => {
+  const root = await temp();
+  const statePath = join(root, "installer-cleanup.json");
+  await writeFile(statePath, "not json");
+  let scans = 0;
+  const fs = {
+    lstat, mkdir, readFile, rename, rm, writeFile,
+    readdir: async () => { scans++; return []; },
+  };
+  await offerOldInstallers({ statePath, downloadsPath: join(root, "Downloads"), currentVersion: "0.1.5", ask: async () => "keep", trashItem() {}, fs });
+  const sameVersion = await offerOldInstallers({ statePath, downloadsPath: join(root, "Downloads"), currentVersion: "0.1.5", ask: async () => "keep", trashItem() {}, fs });
+  assert.equal(scans, 1);
+  assert.deepEqual(sameVersion, { scanned: false, moved: 0, failed: 0 });
 });

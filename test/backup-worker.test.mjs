@@ -449,7 +449,7 @@ test("R17 rejects malformed worker arguments and stale tokens visibly before cop
     assert.match(malformedResult.stderr, /64-hex Backup token/);
     const malformedDialog = await waitJson(join(root, `failure-dialog-${malformed.pid}.json`));
     assert.equal(malformedDialog.intercepted, true);
-    assert.equal(malformedDialog.title, "PokeRogue Offline could not start");
+    assert.equal(malformedDialog.title, "PokeRogue Electron could not start");
     assert.equal(existsSync(join(source, "Save Backups")), false);
 
     await (await import("node:fs/promises")).mkdir(source, { recursive: true });
@@ -469,7 +469,7 @@ test("R17 rejects malformed worker arguments and stale tokens visibly before cop
     assert.match(staleResult.stderr, /token mismatch/);
     const staleDialog = await waitJson(join(root, `failure-dialog-${stale.pid}.json`));
     assert.equal(staleDialog.intercepted, true);
-    assert.equal(staleDialog.title, "PokeRogue Offline could not start");
+    assert.equal(staleDialog.title, "PokeRogue Electron could not start");
     assert.equal(existsSync(join(source, "Save Backups")), false, "stale token must be rejected before stage or Backup creation");
     assert.equal((await (await import("../src/backup-coordinator.mjs")).readIntent({ userData: source, expectedToken: intent.token })).state, "requested");
   } finally {
