@@ -22,6 +22,7 @@ async function harness() {
   const loader = join(root, "loader.mjs");
   const bootstrap = join(root, "bootstrap.mjs");
   const electron = join(root, "electron.mjs");
+  const themedDialog = join(root, "themed-dialog.mjs");
   const backup = join(root, "backup.mjs");
   const coordinator = join(root, "coordinator.mjs");
   const retention = join(root, "retention.mjs");
@@ -29,6 +30,7 @@ async function harness() {
   const runner = join(root, "runner.mjs");
   await writeFile(loader, `export async function resolve(specifier, context, nextResolve) {
     if (specifier === "electron") return { url: new URL("./electron.mjs", import.meta.url).href, shortCircuit: true };
+    if (specifier === "./dialog-main.mjs") return { url: new URL("./themed-dialog.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R05_MAIN_URL && specifier === "./backup.mjs") return { url: new URL("./backup.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R05_MAIN_URL && specifier === "./backup-coordinator.mjs") {
       if (process.env.R05_REAL_COORDINATOR) return nextResolve(specifier, context);
@@ -39,6 +41,7 @@ async function harness() {
     return nextResolve(specifier, context);
   }`);
   await writeFile(bootstrap, `import { register } from "node:module"; register(${JSON.stringify(pathToFileURL(loader).href)});`);
+  await writeFile(themedDialog, `export async function showThemedMessageBox(parent, options) { const state = globalThis.__r05; state.dialogs.push({ title: options.title, message: options.message, detail: options.detail, buttons: options.buttons, cancelId: options.cancelId }); const choice = state.dialogResponses.length ? String(state.dialogResponses.shift()) : process.env.R05_DIALOG_RESPONSE ?? "default"; return { response: choice === "cancel" ? options.cancelId : choice === "default" ? options.defaultId : Number(choice) }; }`);
   await writeFile(electron, `let resolveStartup, rejectStartup, signalRestore, releaseRestore;
     const state = { windows: 0, urls: [], dialogs: [], quits: 0, opened: [], listeners: {}, onceListeners: {}, dialogResponses: JSON.parse(process.env.R05_DIALOG_RESPONSES || "[]"), startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), restoreStarted: new Promise(resolve => { signalRestore = resolve; }), restoreRelease: new Promise(resolve => { releaseRestore = resolve; }) };
     state.signalRestoreStarted = () => signalRestore(); state.releaseRestore = () => releaseRestore();

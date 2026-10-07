@@ -19,6 +19,7 @@ async function createHarness() {
   const loader = join(root, "loader.mjs");
   const bootstrap = join(root, "bootstrap.mjs");
   const electron = join(root, "electron.mjs");
+  const themedDialog = join(root, "themed-dialog.mjs");
   const backup = join(root, "backup.mjs");
   const coordinator = join(root, "coordinator.mjs");
   const updater = join(root, "updater.mjs");
@@ -27,6 +28,7 @@ async function createHarness() {
   const runner = join(root, "runner.mjs");
   await writeFile(loader, `export async function resolve(specifier, context, nextResolve) {
     if (specifier === "electron") return { url: new URL("./electron.mjs", import.meta.url).href, shortCircuit: true };
+    if (specifier === "./dialog-main.mjs") return { url: new URL("./themed-dialog.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./backup.mjs") return { url: new URL("./backup.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./backup-coordinator.mjs") return { url: new URL("./coordinator.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./updater.mjs") return { url: new URL("./updater.mjs", import.meta.url).href, shortCircuit: true };
@@ -35,6 +37,7 @@ async function createHarness() {
     return nextResolve(specifier, context);
   }`);
   await writeFile(bootstrap, `import { register } from "node:module"; register(${JSON.stringify(pathToFileURL(loader).href)});`);
+  await writeFile(themedDialog, `export async function showThemedMessageBox(parent, options) { const state = globalThis.__r06; state.dialogs.push({ title: options.title, message: options.message, buttons: options.buttons }); state.dialogParents.push(parent?.role ?? "destroyed"); return { response: state.dialogResponses.shift() ?? options.cancelId ?? options.defaultId ?? 0 }; }`);
   await writeFile(electron, `let resolveStartup;
     let rejectStartup;
     let stateResolveKeymapStarted;
