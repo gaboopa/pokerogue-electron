@@ -9,13 +9,16 @@ Play [PokéRogue](https://github.com/pagefaultgames/pokerogue) as a standalone d
 
 ## What does this version do?
 
-PokéRogue Offline packages the browser game as a desktop application. The complete game and its assets are installed on your computer. What sets it apart:
+PokéRogue Offline packages the browser game as a desktop application. The complete game and its assets are installed on your computer, and the game window cannot reach the network.
 
-- **Protects your progress** — integrity-checked Backups are made automatically before an Update, Restore or cheat change, and you can restore one from the Backup list.
-- **Yours, offline** — the complete game runs on your computer with gameplay networking blocked; there is no online account or telemetry, and Profiles keep separate Save data side by side.
-- **More to play with** — a built-in cheat control center, offline type charts and reference shortcuts.
+On top of the game, it adds:
 
-It also keeps the game's multiple save slots, delivers updated events, Pokémon data, and Egg Gacha rotations through new app releases, and checks for app updates only when you ask, without connecting gameplay to PokéRogue's servers.
+- Backups made automatically before every Update, Restore and cheat change. Each one carries a checksum that is verified before it can be restored.
+- Profiles, which keep separate saves, cheat settings and Backups side by side. You can have one for normal play and one for cheats.
+- A cheat control center covering money, XP, shinies, IVs, eggs and more.
+- Type charts that work offline, plus menu shortcuts that open the wiki, Pokédex and team-building sites in your browser.
+
+New events, Pokémon data and Egg Gacha rotations arrive through new app releases. The app only checks for one when you ask.
 
 There are no online accounts, cloud saves, leaderboards, telemetry, or connections to the official PokéRogue game API.
 
@@ -26,7 +29,7 @@ There are no online accounts, cloud saves, leaderboards, telemetry, or connectio
 3. Open the downloaded installer.
 4. Follow the installation prompts, then launch **PokéRogue Offline**.
 
-If PokéRogue Offline is already installed, the installer detects the existing registered installation and replaces it instead of creating another installed copy. Your saves remain in the separate user-data folder.
+If PokéRogue Offline is already installed, the installer replaces it. Your saves are stored elsewhere and are kept.
 
 Windows may warn that the publisher is unknown because releases are not code-signed. If you downloaded the installer from this repository's Releases page, choose **More info**, review the filename, and then choose **Run anyway**.
 
@@ -48,42 +51,42 @@ npm run package:mac:local
 The local command downloads the exact game revision, installs locked dependencies, runs tests, builds an ad-hoc signed Apple Silicon DMG, verifies it, and opens it when complete. The resulting DMG is intended only for the Mac that built it and must not be redistributed.
 
 ### macOS requirements
+
 - Apple Silicon Mac (M1 or newer)
 - The macOS version reported by the downloaded app's `LSMinimumSystemVersion`
 - About 1.5 GB of free disk space during installation
 
 ## Saves and backups
 
-Your saves are stored separately from the installed application. Installing a newer version or reinstalling the app normally keeps your progress.
+Your saves are stored separately from the installed application, so installing a newer version or reinstalling the app normally keeps your progress.
 
-Use the **PokéRogue Offline** application menu to:
+The **PokéRogue Offline** application menu has:
 
-- **Back Up Saves** — create a timestamped local backup. The folder name shows when the Backup was requested (UTC) and why it was made (manual, update, restore, cheat);
-- **Restore Backup** — choose a Backup from a list showing its date, reason and integrity check, or use **Choose Folder…** for a Backup kept elsewhere;
-- **Open Save Folder** — open the folder containing saves and backups.
+- **Back Up Saves…** makes a Backup. The app restarts briefly to do it. The Backup's folder name shows when it was requested (UTC) and why (manual, update, restore or cheat).
+- **Restore Backup…** lists your Backups with the date, the reason and the result of an integrity check. **Choose Folder…** restores a Backup kept somewhere else.
+- **Open Save Folder** opens the folder that holds your saves and Backups.
 
-The app keeps the five most recent automatic Backups (those made before an Update, Restore or cheat change) and removes older ones at startup; Backups you make yourself with **Back Up Saves** are never removed automatically. Installers for versions you have already installed are removed from the app's Updates folder.
+The app keeps the five most recent automatic Backups (those made before an Update, a Restore or a cheat change) and removes older ones at startup. Backups you make yourself are never removed automatically.
 
-The app also retains PokéRogue's save export and import features. Back up important progress before changing computers or removing application data.
+A Backup that is incomplete or has been altered fails its integrity check and cannot be restored. The Backup format is described in [DEVELOPMENT.md](DEVELOPMENT.md#backup-format).
 
-New Backups use schema version 2. Their SHA-256 checksum covers the canonical storage inventory, creation time, and a length-framed data tree. Restore rejects missing, duplicate, unexpected, or symbolic-link data entries before changing Save data. An empty snapshot is valid only when its data directory is also empty; restoring it leaves current storage directories alone.
-
-PokeRogue Offline can also restore valid schema version 1 Backups after checking their exact storage inventory and original data-tree checksum. Version 1 checksums did not cover manifest metadata, so fields such as the creation time have weaker integrity than version 2 metadata.
+PokéRogue's own save export and import still work. Back up important progress before changing computers or removing application data.
 
 ### Profiles
 
-Use the **Profiles** menu to create a profile or switch to another one. Each profile has its own Save data, cheat settings and Backups, so you can keep one profile for normal play and another for cheats. Keybindings are shared across profiles. Switching profiles restarts the app. The default profile stays in the existing `userData` folder; named profiles live under its `Profiles/` folder, with the active profile recorded in `active-profile.json` beside it.
+Use the **Profiles** menu to create a profile or switch to another one. Each profile has its own saves, cheat settings and Backups. Keybindings are shared. Switching restarts the app.
+
+Your existing saves are the Default profile. Other profiles are stored in a `Profiles` folder inside the Default profile's save folder.
 
 ## Cheats
 
-Choose **Cheats → Configure Cheats...** to open the control center. It offers:
+Choose **Cheats → Configure Cheats...** to open the control center, turn on **Enable cheats**, and choose from:
 
-- **Enable cheats**
-- **Economy & progression:** **Minimum money**, **XP multiplier**, **Extra candy per friendship**, **Disable level cap**, **Free shop purchases**, **Free rerolls**, **Free Gacha pulls** and **Instant egg hatching**
-- **Minimum Poké Ball inventory:** **Poké**, **Great**, **Ultra**, **Rogue** and **Master**
-- **Battle & Pokémon:** **Force battle retries**, **Guaranteed escape**, **Perfect player IVs**, **Guaranteed player shinies**, **Guaranteed enemy shinies** and **Guaranteed critical hits**
+- Economy and progression: minimum money, XP multiplier, extra candy per friendship, no level cap, free shop purchases, free rerolls, free Gacha pulls and instant egg hatching.
+- Poké Balls: a minimum number of Poké, Great, Ultra, Rogue and Master Balls.
+- Battle and Pokémon: forced battle retries, guaranteed escape, perfect IVs for your Pokémon, guaranteed shinies for your Pokémon or the enemy's, and guaranteed critical hits.
 
-Enabling or disabling cheats first makes a verified Backup, then restarts PokéRogue Offline. Progress earned with cheats on stays in that Save data, so use a separate [Profile](#profiles) for cheat play. This is a single-player offline build, so cheats affect nobody else.
+Turning cheats on or off makes a Backup first and then restarts the app. Progress earned with cheats on stays in those saves, so use a separate [profile](#profiles) for cheat play.
 
 ## Updating
 
@@ -96,13 +99,13 @@ When an update is available, the app:
 3. backs up your saves;
 4. asks before opening the installer.
 
-Download progress is shown on the taskbar or Dock icon, and a download that stops receiving data is cancelled so you can retry.
+Download progress is shown on the taskbar or Dock icon. A download that stops receiving data is cancelled so you can retry. Installers for versions you have already installed are removed from the app's Updates folder.
 
 Gameplay remains available if you are offline or GitHub cannot be reached.
 
 ## Troubleshooting
 
-When opening an issue, use **Copy Diagnostic Report** from the application menu and paste the report into the issue.
+When you open an issue, choose **PokéRogue Offline → Copy Diagnostic Report** and paste the result. It contains no file paths, names or save data.
 
 ### Windows says the app is from an unknown publisher
 
@@ -111,6 +114,7 @@ The installer is currently unsigned. Confirm that it came from the [official Rel
 ### macOS says the app cannot be opened
 
 The public DMG is intentionally unsigned and unnotarized. Some macOS versions classify it as damaged and do not offer **Open Anyway**. Do not remove quarantine attributes with Terminal commands. For a no-cost build that runs locally, follow [BUILDING-MACOS.md](BUILDING-MACOS.md) and run `npm run package:mac:local` on the Apple Silicon Mac that will use the app.
+
 ### My antivirus flags the installer
 
 Unsigned Electron installers can trigger reputation-based warnings. Do not disable your antivirus globally. Confirm the download source and compare the file's SHA-256 checksum with `release-manifest.json` attached to the same release.
@@ -123,9 +127,9 @@ Get-FileHash .\PokeRogue-Offline-*-windows-x64.exe -Algorithm SHA256
 
 ### Will reinstalling erase my saves?
 
-Normally, no. Saves are kept in your user application-data directory, outside the installation folder. They can still be lost if that data directory is manually deleted or removed by a cleanup program, so keeping backups is recommended.
+Normally, no. Saves are kept in your user application-data directory, outside the installation folder. They can still be lost if that data directory is manually deleted or removed by a cleanup program, so keep Backups of progress you care about.
 
-### A Backup restore failed or interrupted
+### A Backup restore failed or was interrupted
 
 If a selected Backup is missing or fails verification, the app records the failed request and opens normally with the current Save data. Choose **Choose another Backup** in the recovery message to select a valid Backup. If the app reports that recovery is required, it will not load the game until you inspect the Save folder, the selected Backup, and the safety Backup paths shown in the message. The safety Backup is created before a restore starts.
 
@@ -145,8 +149,8 @@ You can keep playing. Check your connection and try again later, or download the
 
 - Gameplay content loads only from the files installed with the app.
 - The game window cannot access websites, WebSockets, official game APIs, popups, or external navigation.
-- Update access is isolated to the desktop application's main process and restricted to GitHub release hosts.
-- Updates are initiated by the user and verified before they are opened.
+- Only the update check goes online, and only to GitHub's release hosts.
+- Updates start only when you ask and are verified before they are opened.
 
 The source code for the wrapper and its update verification is available in this repository for review.
 
@@ -154,10 +158,10 @@ The source code for the wrapper and its update verification is available in this
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for local setup, builds, upstream synchronization, packaging, release manifests, and security requirements.
 
-Issues and contributions are welcome. When reporting a problem, include your operating system, app version, and the steps needed to reproduce it. Never attach private save files unless you have reviewed their contents and intend to share them.
+Issues and contributions are welcome. When reporting a problem, paste the diagnostic report and the steps needed to reproduce it. Never attach private save files unless you have reviewed their contents and intend to share them.
 
 ## Credits and licensing
 
-PokéRogue is developed by [Pagefault Games and its contributors](https://github.com/pagefaultgames/pokerogue). This wrapper exists to make the upstream game available as a local desktop application and is not a replacement for or official distribution from that team.
+PokéRogue is developed by [Pagefault Games and its contributors](https://github.com/pagefaultgames/pokerogue). This project packages their game as a local desktop application. It is not an official distribution and does not replace the online game.
 
 Packaged releases include the upstream license, credits, REUSE metadata, asset notices, localization notices, and exact source revisions used for the build. Some upstream assets may have no explicit licensing information. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before redistributing a build.

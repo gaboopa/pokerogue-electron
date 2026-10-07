@@ -124,6 +124,12 @@ Do not change the application ID (`com.gaboopa.pokerogueoffline`), product name,
 
 The NSIS uninstaller preserves application data. Native backups include Chromium local storage, IndexedDB, and session storage, carry a deterministic checksum, and restore transactionally with rollback.
 
+### Backup format
+
+New Backups use schema version 2. Their SHA-256 checksum covers the canonical storage inventory, creation time, and a length-framed data tree. Restore rejects missing, duplicate, unexpected, or symbolic-link data entries before changing Save data. An empty snapshot is valid only when its data directory is also empty; restoring it leaves current storage directories alone.
+
+PokeRogue Offline can also restore valid schema version 1 Backups after checking their exact storage inventory and original data-tree checksum. Version 1 checksums did not cover manifest metadata, so fields such as the creation time have weaker integrity than version 2 metadata.
+
 ## Security invariants
 
 - Renderer sandboxing and context isolation remain enabled.
