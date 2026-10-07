@@ -13,6 +13,7 @@ import {
   cleanupOwned,
   connectGame,
   connectCheat,
+  connectBackups,
   evalRenderer,
   sleep,
   waitForEvent,
@@ -276,7 +277,22 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
     state.config.restorePath = manual.backupPath;
     await state.app.debuggerClient.evaluate(`globalThis.__r20SetRestorePath(${JSON.stringify(manual.backupPath)})`);
     await seedGame(state.remotePort, "changed");
-    const restored = keep(await runRequestedFlow(state, "restore", current => clickMenu(current, "Restore Backup…"), null));
+    const restored = keep(await runRequestedFlow(state, "restore", async current => {
+      await clickMenu(current, "Restore Backup…");
+      const { debuggerClient } = await connectBackups(current.remotePort);
+      await debuggerClient.evaluate(`(async () => {
+        const deadline = Date.now() + 30000;
+        for (;;) {
+          const row = document.querySelector("#backups tr");
+          const integrity = row?.cells[2];
+          if (integrity?.textContent === "Verified") { row.click(); document.getElementById("restore").click(); return true; }
+          if (integrity?.textContent === "Failed") throw new Error("The listed Backup failed verification: " + integrity.title);
+          if (Date.now() > deadline) throw new Error("The Backups list did not verify a row in time");
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      })()`, true);
+      debuggerClient.close();
+    }, null));
     const restoredState = await readGame(restored.remotePort);
     assert.deepEqual(restoredState, {
       local: { suffix: "manual", value: "local-manual" },
