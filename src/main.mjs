@@ -19,6 +19,7 @@ import { createUtilitiesSubmenu } from "./utilities.mjs";
 import { createMenuTemplate } from "./menu.mjs";
 import { clearTerminalIntent, createIntent, prepareResumeIntent, readCurrentIntent, recoverStaleIntentLock, revalidateResumingUpdate, transitionIntent } from "./backup-coordinator.mjs";
 import { formatDiagnosticReport, summarizeBackups } from "./diagnostics.mjs";
+import { showThemedMessageBox } from "./dialog-main.mjs";
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, stream: true } }]);
 app.setName(PRODUCT_NAME);
@@ -45,7 +46,15 @@ function getLiveMainWindow() {
 }
 
 function showMessageBox(options, parent = getLiveMainWindow()) {
-  return parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options);
+  return parent && !parent.isDestroyed() ? showThemedMessageBox(parent, options) : dialog.showMessageBox(options);
+}
+
+function showErrorBox(title, message) {
+  const parent = getLiveMainWindow();
+  if (parent) return showThemedMessageBox(parent, { type: "error", title, message, buttons: ["OK"] }).catch(error => {
+    process.stderr.write(`Could not show error dialog: ${error.message}\n`);
+  });
+  return dialog.showErrorBox(title, message);
 }
 
 function showOpenDialog(options, parent = getLiveMainWindow()) {
@@ -174,7 +183,7 @@ async function reloadKeybindings(expectedWindow = getLiveMainWindow()) {
 async function openKeybindingsFile() {
   await reloadKeybindings();
   const error = await shell.openPath(paths().keymap);
-  if (error) dialog.showErrorBox("Could not open keybindings", error);
+  if (error) showErrorBox("Could not open keybindings", error);
 }
 
 async function resetKeybindings() {
@@ -183,7 +192,7 @@ async function resetKeybindings() {
 }
 
 function openExternalUtility(url) {
-  void shell.openExternal(url).catch(error => dialog.showErrorBox("Could not open utility", error.message));
+  void shell.openExternal(url).catch(error => showErrorBox("Could not open utility", error.message));
 }
 
 function toggleChartWindow(chart) {
@@ -240,7 +249,7 @@ async function failColdIntent(intent, message, code = "continuation-failed", { s
 function reportColdIntentFailure(error) {
   backupRequestActive = true;
   startupRestarting = false;
-  try { dialog.showErrorBox("Backup request needs attention", `The request status could not be safely recorded. No new Backup will start until the application is restarted.\n\n${error.message}`); }
+  try { showErrorBox("Backup request needs attention", `The request status could not be safely recorded. No new Backup will start until the application is restarted.\n\n${error.message}`); }
   catch (reportError) { process.stderr.write(`Could not report Backup request failure: ${reportError.message}\n`); }
 }
 
@@ -719,7 +728,7 @@ function createMenu() {
     cheats,
     profileNames: listProfiles(paths().root),
     activeProfile: profileContext?.name ?? null,
-    onSelectProfile: name => { void switchProfile(name).catch(error => { createMenu(); dialog.showErrorBox("Profile switch failed", error.message); }); },
+    onSelectProfile: name => { void switchProfile(name).catch(error => { createMenu(); showErrorBox("Profile switch failed", error.message); }); },
     onNewProfile: () => profileController.openWindow(),
   })));
 }
@@ -762,7 +771,7 @@ async function createWindow() {
     if (window.isDestroyed() || mainWindow !== window) return;
     mainWindow = undefined;
     window.destroy();
-    dialog.showErrorBox("Could not load game", error.message);
+    showErrorBox("Could not load game", error.message);
   }
 }
 
