@@ -55,7 +55,7 @@ async function createHarness() {
       toggleDevTools() { this.owner.devtools++; }
     }
     export class BrowserWindow {
-      constructor(options) { this.id = state.instances.length + 1; this.options = options; this.role = options.width === 1280 ? "game" : options.width === 760 ? "editor" : "chart"; this.destroyed = false; this.visible = false; this.handlers = makeEventMap(); this.onceHandlers = makeEventMap(); this.webContents = new Contents(this); this.reloads = 0; this.shows = 0; this.hides = 0; this.focuses = 0; this.fullscreen = false; this.sent = 0; this.devtools = 0; state.instances.push(this); state.events.push("window:" + this.role); }
+      constructor(options) { this.id = state.instances.length + 1; this.options = options; this.role = options.title === "Backups" ? "backups" : options.width === 1280 ? "game" : options.width === 760 ? "editor" : "chart"; this.destroyed = false; this.visible = false; this.handlers = makeEventMap(); this.onceHandlers = makeEventMap(); this.webContents = new Contents(this); this.reloads = 0; this.shows = 0; this.hides = 0; this.focuses = 0; this.fullscreen = false; this.sent = 0; this.devtools = 0; state.instances.push(this); state.events.push("window:" + this.role); }
       static getAllWindows() { return state.instances.filter(window => !window.destroyed); }
       isDestroyed() { return this.destroyed; }
       isVisible() { return this.visible; }
@@ -128,6 +128,9 @@ async function createHarness() {
       chart.emit("ready-to-show");
       await click("Configure Cheats...");
       const editor = state.instances.find(window => window.role === "editor");
+      await click("Restore Backup…");
+      const backupWindow = state.instances.find(window => window.role === "backups");
+      backupWindow.emit("ready-to-show");
       game.close();
       state.listeners.activate();
       const replacement = games()[0];
@@ -144,6 +147,7 @@ async function createHarness() {
       state.afterStaleCallbacks = games().length;
       state.staleSnapshot = { before, oldShows: game.shows, replacementShows: replacement.shows, oldReloads: game.reloads, replacementReloads: replacement.reloads };
       state.auxiliaryAlive = !chart.destroyed && !editor.destroyed;
+      state.backupWindowSecure = Object.fromEntries(["sandbox", "contextIsolation", "nodeIntegration", "webSecurity"].map(key => [key, backupWindow.options.webPreferences[key]]));
       replacement.emit("ready-to-show");
       state.replacementShown = replacement.shows;
     } else if (process.env.R06_SCENARIO === "guards") {
@@ -157,8 +161,9 @@ async function createHarness() {
       await click("Type Chart");
       await click("Back Up Saves…");
       await click("Restore Backup…");
+      const backupWindow = state.instances.find(window => window.role === "backups");
       await click("Open Save Folder");
-      state.guardSnapshot = { gameDestroyed: game.destroyed, chartHides: chart.hides, flushes: state.flushes, backups: state.backups, dialogParents: state.dialogParents, dialogs: state.dialogs.length, opened: state.opened.length, destroyedParentUsed: state.dialogParents.includes("destroyed") };
+      state.guardSnapshot = { gameDestroyed: game.destroyed, chartHides: chart.hides, flushes: state.flushes, backups: state.backups, backupWindow: Boolean(backupWindow), dialogParents: state.dialogParents, dialogs: state.dialogs.length, opened: state.opened.length, destroyedParentUsed: state.dialogParents.includes("destroyed") };
     } else if (process.env.R06_SCENARIO === "cold-cancel") {
       await click("Back Up Saves…");
       await click("Back Up Saves…");
@@ -170,6 +175,9 @@ async function createHarness() {
       state.coldSnapshot = { flushes: state.flushes, backups: state.backups, relaunches: state.relaunches, args: state.relaunchArgs, created: state.coordinator.created, dialogs: state.dialogs };
     } else if (process.env.R06_SCENARIO === "restore-request" || process.env.R06_SCENARIO === "restore-cancel") {
       await click("Restore Backup…");
+      const backupWindow = state.instances.find(window => window.role === "backups");
+      if (!backupWindow) throw new Error("Restore Backup menu did not open the Backup list window");
+      await state.handlers["backups:choose-folder"]({ sender: { id: backupWindow.webContents.id } });
       if (process.env.R06_SCENARIO === "restore-request") {
         state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
         await new Promise(resolve => setImmediate(resolve));
@@ -245,7 +253,7 @@ async function createHarness() {
       games: games().length, instances: state.instances.map(window => ({ role: window.role, webPreferences: Object.fromEntries(["sandbox", "contextIsolation", "nodeIntegration", "webSecurity"].map(key => [key, window.options.webPreferences[key]])), destroyed: window.destroyed, reloads: window.reloads, shows: window.shows, hides: window.hides })),
       urls: state.urls ?? [], dialogs: state.dialogs, dialogParents: state.dialogParents, opened: state.opened, flushes: state.flushes, backups: state.backups,
       afterRepeatedActivation: state.afterRepeatedActivation, afterStaleCallbacks: state.afterStaleCallbacks, staleSnapshot: state.staleSnapshot,
-      auxiliaryAlive: state.auxiliaryAlive, replacementShown: state.replacementShown, keyboardPrevented: state.keyboardPrevented,
+      auxiliaryAlive: state.auxiliaryAlive, backupWindowSecure: state.backupWindowSecure, replacementShown: state.replacementShown, keyboardPrevented: state.keyboardPrevented,
       afterF5Reloads: state.afterF5Reloads, keyboardModifiedPrevented: state.keyboardModifiedPrevented, guardSnapshot: state.guardSnapshot,
       keymapRace: state.keymapRace, loadRecovery: state.loadRecovery,
       coldSnapshot: state.coldSnapshot, prunes: state.prunes ?? [],
@@ -272,13 +280,14 @@ async function launch(scenario) {
   return JSON.parse(await readFile(resultPath, "utf8"));
 }
 
-test("game, cheat editor, and chart windows use the secure web preferences", async () => {
+test("game, cheat editor, chart, and Backup windows use the secure web preferences", async () => {
   const state = await launch("reopen");
   const securePreferences = { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true };
   for (const role of ["game", "editor", "chart"]) {
     const window = state.instances.find(instance => instance.role === role);
     assert.deepEqual(window.webPreferences, securePreferences, `${role} window`);
   }
+  assert.deepEqual(state.backupWindowSecure, securePreferences, "Backup window");
 });
 
 test("activation reopens one game window while chart and cheat editor survive, and stale callbacks cannot affect it", async () => {
@@ -298,8 +307,9 @@ test("menu and auxiliary-window actions tolerate an absent or destroyed game win
   assert.equal(state.guardSnapshot.chartHides, 1);
   assert.equal(state.guardSnapshot.flushes, 0);
   assert.equal(state.guardSnapshot.backups, 0);
+  assert.equal(state.guardSnapshot.backupWindow, true);
   assert.equal(state.guardSnapshot.destroyedParentUsed, false);
-  assert.deepEqual(state.guardSnapshot.dialogParents, [null, null]);
+  assert.deepEqual(state.guardSnapshot.dialogParents, [null]);
   assert.equal(state.guardSnapshot.dialogs, 1);
   assert.equal(state.guardSnapshot.opened, 1);
 });

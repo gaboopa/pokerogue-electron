@@ -9,6 +9,7 @@ import { pruneAutomaticBackups, pruneUpdateDownloads } from "./retention.mjs";
 import { BackupRestoreError, restoreBackup, validateBackup } from "./backup.mjs";
 import { applyCheatConfiguration } from "./cheats.mjs";
 import { createCheatController } from "./cheat-main.mjs";
+import { createBackupController } from "./backup-main.mjs";
 import { assertValidProfileName, createProfile, listProfiles, setActiveProfile } from "./profiles.mjs";
 import { createProfileController } from "./profile-main.mjs";
 import { keymapModifiedAt, loadKeymap, resetKeymap } from "./keymap-store.mjs";
@@ -29,6 +30,7 @@ let mainWindow;
 let keymapMtime = 0;
 const chartWindows = new Map();
 let cheatController;
+let backupController;
 let profileController;
 let startupRecoveryBlocked = false;
 let startupReady = false;
@@ -407,7 +409,10 @@ async function acknowledgeColdRestore(token) {
 async function chooseAndRestore() {
   const result = await showOpenDialog({ title: "Choose a save backup", defaultPath: paths().backupRoot, properties: ["openDirectory"] });
   if (result.canceled || !result.filePaths[0]) return { restored: false };
-  const selected = result.filePaths[0];
+  return restoreSelectedBackup(result.filePaths[0]);
+}
+
+async function restoreSelectedBackup(selected) {
   await validateBackup(selected);
   const restart = await showMessageBox({ type: "warning", title: "Restart to restore Backup", message: "PokeRogue Offline must close briefly to create a consistent safety Backup before restoring.", detail: "Choose Restart to continue, or Cancel to keep your current Save data.", buttons: ["Restart and Restore", "Cancel"], defaultId: 0, cancelId: 1 });
   if (restart.response !== 0) return { restored: false, cancelled: true };
@@ -702,7 +707,7 @@ function createMenu() {
     productName: PRODUCT_NAME,
     onCheckForUpdates: performUpdateCheck,
     onBackup: requestManualBackup,
-    onRestore: chooseAndRestore,
+    onRestore: () => backupController.openWindow(),
     onOpenSaveFolder: () => shell.openPath(paths().userData),
     onCopyDiagnosticReport: () => { void copyDiagnosticReport(); },
     onReload: () => getLiveMainWindow()?.reload(),
@@ -803,6 +808,11 @@ app.whenReady().then(async () => {
     createAndRestart: createAndRestartProfile,
   });
   profileController.registerIpc();
+  backupController = createBackupController({
+    moduleRoot, backupRoot: paths().backupRoot, icon: windowIcon, getMainWindow: getLiveMainWindow,
+    validateBackup, restorePath: restoreSelectedBackup, chooseFolder: chooseAndRestore,
+  });
+  backupController.registerIpc();
   createMenu();
   await createWindow();
   startupReady = true;
