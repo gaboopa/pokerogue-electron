@@ -55,7 +55,7 @@ async function createHarness() {
       toggleDevTools() { this.owner.devtools++; }
     }
     export class BrowserWindow {
-      constructor(options) { this.id = state.instances.length + 1; this.options = options; this.role = options.title === "Backups" ? "backups" : options.width === 1280 ? "game" : options.width === 760 ? "editor" : "chart"; this.destroyed = false; this.visible = false; this.handlers = makeEventMap(); this.onceHandlers = makeEventMap(); this.webContents = new Contents(this); this.reloads = 0; this.shows = 0; this.hides = 0; this.focuses = 0; this.fullscreen = false; this.sent = 0; this.devtools = 0; state.instances.push(this); state.events.push("window:" + this.role); }
+      constructor(options) { this.id = state.instances.length + 1; this.options = options; this.role = options.title === "Backups" ? "backups" : options.width === 1280 ? "game" : options.width === 800 ? "editor" : "chart"; this.destroyed = false; this.visible = false; this.handlers = makeEventMap(); this.onceHandlers = makeEventMap(); this.webContents = new Contents(this); this.reloads = 0; this.shows = 0; this.hides = 0; this.focuses = 0; this.fullscreen = false; this.sent = 0; this.devtools = 0; state.instances.push(this); state.events.push("window:" + this.role); }
       static getAllWindows() { return state.instances.filter(window => !window.destroyed); }
       isDestroyed() { return this.destroyed; }
       isVisible() { return this.visible; }

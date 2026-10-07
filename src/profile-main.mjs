@@ -12,7 +12,7 @@ export function createProfileController({ moduleRoot, icon, getMainWindow, creat
   function openWindow() {
     if (profileWindow && !profileWindow.isDestroyed()) { profileWindow.show(); profileWindow.focus(); return; }
     profileWindow = new BrowserWindow({
-      width: 420, height: 260, resizable: false, show: false, autoHideMenuBar: true, title: "New Profile",
+      width: 480, height: 360, resizable: false, show: false, autoHideMenuBar: true, title: "New Profile", frame: false,
       parent: getMainWindow() ?? undefined, ...(icon ? { icon } : {}),
       webPreferences: { preload: join(moduleRoot, "src", "profile-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
     });

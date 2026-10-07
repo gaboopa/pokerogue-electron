@@ -21,7 +21,7 @@ export function createCheatController({ moduleRoot, configPath, icon, getMainWin
   function openWindow() {
     if (editorWindow && !editorWindow.isDestroyed()) { editorWindow.show(); editorWindow.focus(); return; }
     editorWindow = new BrowserWindow({
-      width: 760, height: 820, minWidth: 620, minHeight: 650, show: false, autoHideMenuBar: true,
+      width: 800, height: 900, minWidth: 680, minHeight: 700, show: false, autoHideMenuBar: true, frame: false, title: "Cheat Control Center",
       parent: getMainWindow() ?? undefined, ...(icon ? { icon } : {}),
       webPreferences: { preload: join(moduleRoot, "src", "cheat-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
     });

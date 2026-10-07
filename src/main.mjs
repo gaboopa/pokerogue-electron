@@ -194,7 +194,7 @@ function toggleChartWindow(chart) {
     return;
   }
   const chartWindow = new BrowserWindow({
-    width: chart.width, height: chart.height, show: false, autoHideMenuBar: true,
+    width: chart.width, height: chart.height + 48, useContentSize: true, show: false, autoHideMenuBar: true, frame: false, title: chart.label,
     ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
   });
@@ -207,7 +207,7 @@ function toggleChartWindow(chart) {
   chartWindow.on("closed", () => {
     if (chartWindows.get(chart.id) === chartWindow) chartWindows.delete(chart.id);
   });
-  void chartWindow.loadFile(join(moduleRoot, "src", "assets", chart.asset));
+  void chartWindow.loadFile(join(moduleRoot, "src", "chart-window", "index.html"), { query: { chart: chart.id } });
 }
 
 function workerArgs(token) {
