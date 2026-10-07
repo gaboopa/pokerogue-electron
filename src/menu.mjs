@@ -5,6 +5,7 @@ export function createMenuTemplate({
   onBackup,
   onRestore,
   onOpenSaveFolder,
+  onCopyDiagnosticReport,
   onReload,
   onToggleFullscreen,
   onDeveloperTools,
@@ -23,6 +24,7 @@ export function createMenuTemplate({
     { label: "Back Up Saves…", click: onBackup },
     { label: "Restore Backup…", click: onRestore },
     { label: "Open Save Folder", click: onOpenSaveFolder },
+    { label: "Copy Diagnostic Report", click: onCopyDiagnosticReport },
     ...(isMac
       ? [
           { type: "separator" },

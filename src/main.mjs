@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, Menu, protocol, session, shell } from "electron";
+// Namespace import: the test shims for "electron" do not export clipboard.
+import * as electron from "electron";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +17,7 @@ import { registerGameProtocol } from "./protocol.mjs";
 import { createUtilitiesSubmenu } from "./utilities.mjs";
 import { createMenuTemplate } from "./menu.mjs";
 import { clearTerminalIntent, createIntent, prepareResumeIntent, readCurrentIntent, recoverStaleIntentLock, revalidateResumingUpdate, transitionIntent } from "./backup-coordinator.mjs";
+import { formatDiagnosticReport, summarizeBackups } from "./diagnostics.mjs";
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, stream: true } }]);
 app.setName(PRODUCT_NAME);
@@ -65,6 +68,55 @@ function paths() {
   const userData = app.getPath("userData");
   const root = globalThis[Symbol.for("pokerogue.profile-context")]?.root ?? userData;
   return { root, userData, backupRoot: join(userData, "Save Backups"), downloadRoot: join(userData, "Updates"), keymap: join(root, "keymap.json"), cheats: join(userData, "cheats.json") };
+}
+
+async function diagnosticFacts() {
+  const profileContext = globalThis[Symbol.for("pokerogue.profile-context")];
+  const unavailable = "unavailable";
+  const facts = {
+    version: unavailable, packaged: unavailable, platform: unavailable, arch: unavailable, osVersion: unavailable,
+    electron: unavailable, chrome: unavailable, node: unavailable,
+    revisions: { game: unavailable, assets: unavailable, locales: unavailable },
+    profileName: unavailable, profileCount: unavailable,
+    backups: { count: unavailable }, pending: unavailable,
+  };
+  try { facts.version = app.getVersion(); } catch {}
+  try { facts.packaged = app.isPackaged; } catch {}
+  try { facts.platform = process.platform; } catch {}
+  try { facts.arch = process.arch; } catch {}
+  try {
+    const systemName = { win32: "Windows", darwin: "macOS", linux: "Linux" }[process.platform] ?? process.platform;
+    facts.osVersion = `${systemName} ${process.getSystemVersion()}`;
+  } catch {}
+  try { facts.electron = process.versions.electron; } catch {}
+  try { facts.chrome = process.versions.chrome; } catch {}
+  try { facts.node = process.versions.node; } catch {}
+  try {
+    const revisionPath = app.isPackaged ? join(process.resourcesPath, "revisions.json") : join(moduleRoot, "staging", "revisions.json");
+    const revisions = JSON.parse(await readFile(revisionPath, "utf8"));
+    if (!revisions || typeof revisions !== "object" || Array.isArray(revisions) ||
+        !["game", "assets", "locales"].every(key => typeof revisions[key] === "string" && /^[a-f\d]{40,64}$/i.test(revisions[key]))) throw new Error("Malformed revisions file");
+    facts.revisions = { game: revisions.game, assets: revisions.assets, locales: revisions.locales };
+  } catch {}
+  try {
+    facts.profileName = profileContext?.name ?? null;
+    facts.profileCount = listProfiles(profileContext?.root ?? app.getPath("userData")).length + 1;
+  } catch {}
+  try {
+    const entries = await readdir(paths().backupRoot, { withFileTypes: true });
+    facts.backups = summarizeBackups(entries.filter(entry => entry.isDirectory()).map(entry => entry.name));
+  } catch (error) { if (error.code === "ENOENT") facts.backups = { count: 0 }; }
+  try {
+    const intent = await readCurrentIntent({ userData: paths().userData });
+    facts.pending = intent ? { operation: intent.operation, state: intent.state } : null;
+  } catch {}
+  return facts;
+}
+
+async function copyDiagnosticReport() {
+  const report = formatDiagnosticReport(await diagnosticFacts());
+  electron.clipboard.writeText(report);
+  await showMessageBox({ type: "info", title: "Diagnostic report copied", message: "The report is on your clipboard. It contains version and revision details only — no Save data or file paths." });
 }
 
 async function profileSwitchBusy() {
@@ -652,6 +704,7 @@ function createMenu() {
     onBackup: requestManualBackup,
     onRestore: chooseAndRestore,
     onOpenSaveFolder: () => shell.openPath(paths().userData),
+    onCopyDiagnosticReport: () => { void copyDiagnosticReport(); },
     onReload: () => getLiveMainWindow()?.reload(),
     onToggleFullscreen: () => { const window = getLiveMainWindow(); if (window) window.setFullScreen(!window.isFullScreen()); },
     onDeveloperTools: () => getLiveMainWindow()?.webContents.toggleDevTools(),
