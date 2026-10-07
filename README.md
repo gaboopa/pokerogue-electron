@@ -64,11 +64,11 @@ The renamed app does not replace an older app named `PokeRogue Offline` in Appli
 
 Your saves are stored separately from the installed application, so installing a newer version or reinstalling the app normally keeps your progress.
 
-The **PokéRogue Electron** application menu has:
+The **Saves** menu has:
 
-- **Back Up Saves…** makes a Backup. The app restarts briefly to do it. The Backup's folder name shows when it was requested (UTC) and why (manual, update, restore or cheat).
-- **Restore Backup…** lists your Backups with the date, the reason and the result of an integrity check. **Choose Folder…** restores a Backup kept somewhere else.
-- **Open Save Folder** opens the folder that holds your saves and Backups.
+- **Saves › Back Up Saves…** makes a Backup. The app restarts briefly to do it. The Backup's folder name shows when it was requested (UTC) and why (manual, update, restore or cheat).
+- **Saves › Restore Backup…** lists your Backups with the date, the reason and the result of an integrity check. **Choose Folder…** restores a Backup kept somewhere else.
+- **Saves › Open Save Folder** opens the folder that holds your saves and Backups.
 
 The app keeps the five most recent automatic Backups (those made before an Update, a Restore or a cheat change) and removes older ones at startup. Backups you make yourself are never removed automatically.
 
@@ -84,7 +84,7 @@ Your existing saves are the Default profile. Other profiles are stored in a `Pro
 
 ## Cheats
 
-Choose **Cheats → Configure Cheats...** to open the control center, turn on **Enable cheats**, and choose from:
+Choose **Cheats › Configure Cheats…** to open the control center, turn on **Enable cheats**, and choose from:
 
 - Economy and progression: minimum money, XP multiplier, extra candy per friendship, no level cap, free shop purchases, free rerolls, free Gacha pulls and instant egg hatching.
 - Poké Balls: a minimum number of Poké, Great, Ultra, Rogue and Master Balls.
@@ -94,7 +94,7 @@ Turning cheats on or off makes a Backup first and then restarts the app. Progres
 
 ## Updating
 
-The app never checks silently. Select **PokéRogue Electron → Check for Updates** when you want to check.
+The app never checks silently. Select **Game › Check for Updates…** on Windows and Linux, or **PokéRogue Electron › Check for Updates…** on macOS.
 
 When an update is available, the app:
 
@@ -109,7 +109,7 @@ Gameplay remains available if you are offline or GitHub cannot be reached.
 
 ## Troubleshooting
 
-When you open an issue, choose **PokéRogue Electron → Copy Diagnostic Report** and paste the result. It contains no file paths, names or save data.
+When you open an issue, choose **Game › Copy Diagnostic Report** on Windows and Linux, or **PokéRogue Electron › Copy Diagnostic Report** on macOS, then paste the result. It contains no file paths, names or save data.
 
 ### Windows says the app is from an unknown publisher
 

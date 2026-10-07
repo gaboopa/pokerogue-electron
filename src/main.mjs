@@ -696,12 +696,12 @@ function installNetworkPolicy() {
 function createMenu() {
   const isMac = process.platform === "darwin";
   const keybindings = [
-    { label: "Open Keybindings File...", click: () => void openKeybindingsFile() },
+    { label: "Open Keybindings File…", click: () => void openKeybindingsFile() },
     { label: "Reload Keybindings", click: () => void reloadKeybindings() },
     { label: "Reset to Defaults", click: () => void resetKeybindings() },
   ];
   const utilities = createUtilitiesSubmenu({ openExternal: openExternalUtility, openChart: toggleChartWindow });
-  const cheats = [{ label: "Configure Cheats...", click: () => cheatController.openWindow() }];
+  const cheats = [{ label: "Configure Cheats…", click: () => cheatController.openWindow() }];
   const profileContext = globalThis[Symbol.for("pokerogue.profile-context")];
   Menu.setApplicationMenu(Menu.buildFromTemplate(createMenuTemplate({
     isMac,
