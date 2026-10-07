@@ -9,14 +9,13 @@ Play [PokéRogue](https://github.com/pagefaultgames/pokerogue) as a standalone d
 
 ## What does this version do?
 
-PokéRogue Offline packages the browser game as a desktop application. The complete game and its assets are installed on your computer, so you can:
+PokéRogue Offline packages the browser game as a desktop application. The complete game and its assets are installed on your computer. What sets it apart:
 
-- play without an internet connection;
-- keep saves locally on your computer;
-- use multiple save slots;
-- back up and restore saves from the application menu;
-- receive updated events, Pokémon data, and Egg Gacha rotations through new app releases;
-- check for app updates manually without connecting gameplay to PokéRogue's servers.
+- **Protects your progress** — integrity-checked Backups are made automatically before an Update, Restore or cheat change, and you can restore one from the Backup list.
+- **Yours, offline** — the complete game runs on your computer with gameplay networking blocked; there is no online account or telemetry, and Profiles keep separate Save data side by side.
+- **More to play with** — a built-in cheat control center, offline type charts and reference shortcuts.
+
+It also keeps the game's multiple save slots, delivers updated events, Pokémon data, and Egg Gacha rotations through new app releases, and checks for app updates only when you ask, without connecting gameplay to PokéRogue's servers.
 
 There are no online accounts, cloud saves, leaderboards, telemetry, or connections to the official PokéRogue game API.
 
@@ -74,6 +73,17 @@ PokeRogue Offline can also restore valid schema version 1 Backups after checking
 ### Profiles
 
 Use the **Profiles** menu to create a profile or switch to another one. Each profile has its own Save data, cheat settings and Backups, so you can keep one profile for normal play and another for cheats. Keybindings are shared across profiles. Switching profiles restarts the app. The default profile stays in the existing `userData` folder; named profiles live under its `Profiles/` folder, with the active profile recorded in `active-profile.json` beside it.
+
+## Cheats
+
+Choose **Cheats → Configure Cheats...** to open the control center. It offers:
+
+- **Enable cheats**
+- **Economy & progression:** **Minimum money**, **XP multiplier**, **Extra candy per friendship**, **Disable level cap**, **Free shop purchases**, **Free rerolls**, **Free Gacha pulls** and **Instant egg hatching**
+- **Minimum Poké Ball inventory:** **Poké**, **Great**, **Ultra**, **Rogue** and **Master**
+- **Battle & Pokémon:** **Force battle retries**, **Guaranteed escape**, **Perfect player IVs**, **Guaranteed player shinies**, **Guaranteed enemy shinies** and **Guaranteed critical hits**
+
+Enabling or disabling cheats first makes a verified Backup, then restarts PokéRogue Offline. Progress earned with cheats on stays in that Save data, so use a separate [Profile](#profiles) for cheat play. This is a single-player offline build, so cheats affect nobody else.
 
 ## Updating
 
