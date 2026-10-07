@@ -38,11 +38,9 @@ export function createBackupController({ moduleRoot, backupRoot, icon, getMainWi
     ipcMain.handle("backups:restore", async (event, name) => {
       assertWindow(event);
       const path = await listedPath(name);
-      await validateBackup(path);
-      backupWindow.close();
-      return restorePath(path);
+      return restorePath(path, backupWindow);
     });
-    ipcMain.handle("backups:choose-folder", async event => { assertWindow(event); return chooseFolder(); });
+    ipcMain.handle("backups:choose-folder", async event => { assertWindow(event); return chooseFolder(backupWindow); });
     ipcMain.handle("backups:close", event => { assertWindow(event); backupWindow.close(); });
   }
 

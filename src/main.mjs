@@ -44,13 +44,11 @@ function getLiveMainWindow() {
   return undefined;
 }
 
-function showMessageBox(options) {
-  const parent = getLiveMainWindow();
+function showMessageBox(options, parent = getLiveMainWindow()) {
   return parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options);
 }
 
-function showOpenDialog(options) {
-  const parent = getLiveMainWindow();
+function showOpenDialog(options, parent = getLiveMainWindow()) {
   return parent ? dialog.showOpenDialog(parent, options) : dialog.showOpenDialog(options);
 }
 
@@ -406,16 +404,19 @@ async function acknowledgeColdRestore(token) {
   return completed;
 }
 
-async function chooseAndRestore() {
-  const result = await showOpenDialog({ title: "Choose a save backup", defaultPath: paths().backupRoot, properties: ["openDirectory"] });
+// parent: the window the request came from, so its dialogs open in front of it.
+async function chooseAndRestore(parent) {
+  const result = await showOpenDialog({ title: "Choose a save backup", defaultPath: paths().backupRoot, properties: ["openDirectory"] }, parent);
   if (result.canceled || !result.filePaths[0]) return { restored: false };
-  return restoreSelectedBackup(result.filePaths[0]);
+  return restoreSelectedBackup(result.filePaths[0], parent);
 }
 
-async function restoreSelectedBackup(selected) {
+async function restoreSelectedBackup(selected, parent) {
   await validateBackup(selected);
-  const restart = await showMessageBox({ type: "warning", title: "Restart to restore Backup", message: "PokeRogue Offline must close briefly to create a consistent safety Backup before restoring.", detail: "Choose Restart to continue, or Cancel to keep your current Save data.", buttons: ["Restart and Restore", "Cancel"], defaultId: 0, cancelId: 1 });
+  const restart = await showMessageBox({ type: "warning", title: "Restart to restore Backup", message: "PokeRogue Offline must close briefly to create a consistent safety Backup before restoring.", detail: "Choose Restart to continue, or Cancel to keep your current Save data.", buttons: ["Restart and Restore", "Cancel"], defaultId: 0, cancelId: 1 }, parent);
   if (restart.response !== 0) return { restored: false, cancelled: true };
+  // Later dialogs belong to the game window; an open child window would cover them.
+  if (parent && parent !== getLiveMainWindow() && !parent.isDestroyed()) parent.close();
   await retireSafeColdRestoreForReplacement();
   const requested = await requestColdBackup("restore", { selectedBackup: selected });
   return { restored: false, requested: requested.requested === true };

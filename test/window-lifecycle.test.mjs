@@ -367,6 +367,9 @@ test("Restore validates its selection and requests a cold safety Backup before r
   assert.equal(cancelled.coldSnapshot.flushes, 0);
   assert.equal(cancelled.coldSnapshot.created.length, 0);
   assert.equal(cancelled.coldSnapshot.relaunches, 0);
+  assert.deepEqual(cancelled.dialogParents, ["backups", "backups"], "the picker and the confirmation open in front of the Backups window");
+  assert.equal(cancelled.instances.find(window => window.role === "backups").destroyed, false, "cancelling keeps the Backups window open");
+  assert.equal(state.instances.find(window => window.role === "backups").destroyed, true, "confirming closes the Backups window");
 });
 
 test("cheat approval queues cold Backup without writing, while cancellation queues nothing", async () => {
