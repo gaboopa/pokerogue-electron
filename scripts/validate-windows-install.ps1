@@ -47,7 +47,8 @@ function Get-AppRegistrations {
       $properties = Get-ItemProperty -LiteralPath $entry.PSPath
       $displayNameProperty = $properties.PSObject.Properties['DisplayName']
       $displayName = if ($displayNameProperty) { [string]$displayNameProperty.Value } else { '' }
-      if ($displayName -ceq $productName -or $entry.PSChildName -ceq $appId) {
+      # The release being upgraded from registers under the previous display name.
+      if ($displayName -ceq $productName -or $displayName -ceq $storageDirectoryName -or $entry.PSChildName -ceq $appId) {
         $registrations += [pscustomobject]@{
           RegistryPath = $entry.Name
           KeyName = $entry.PSChildName
