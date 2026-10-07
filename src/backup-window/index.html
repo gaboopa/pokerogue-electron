@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Backups</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+  <main>
+    <h1>Backups</h1>
+    <p id="empty" hidden>No Backups yet. Use Back Up Saves… to create one.</p>
+    <div class="table-wrap"><table><thead><tr><th>Created</th><th>Reason</th><th>Integrity</th></tr></thead><tbody id="backups"></tbody></table></div>
+    <p id="error" role="status"></p>
+  </main>
+  <footer><button id="restore" disabled>Restore</button><button id="choose">Choose Folder…</button><button id="close">Close</button></footer>
+  <script type="module" src="renderer.mjs"></script>
+</body>
+</html>
