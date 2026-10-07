@@ -49,10 +49,15 @@ test("macOS menu uses native app, window, and keyboard conventions", () => {
   const view = mac.find(item => item.label === "View");
   const file = mac.find(item => item.label === "File");
   const window = mac.find(item => item.label === "Window");
+  assert.deepEqual(mac.map(item => item.label), ["PokeRogue Electron", "File", "Saves", "View", "Tools", "Cheats", "Profiles", "Window"]);
   assert.equal(app.submenu[0].role, "about");
   assert.ok(app.submenu.some(item => item.role === "services"));
   assert.ok(app.submenu.some(item => item.role === "hide"));
+  assert.ok(app.submenu.some(item => item.role === "hideOthers"));
+  assert.ok(app.submenu.some(item => item.role === "unhide"));
   assert.ok(app.submenu.some(item => item.role === "quit"));
+  assert.ok(app.submenu.some(item => item.label === "Check for Updates…"));
+  assert.ok(app.submenu.some(item => item.label === "Copy Diagnostic Report"));
   assert.equal(file.submenu[0].role, "close");
   assert.equal(view.submenu[0].accelerator, "CommandOrControl+R");
   assert.equal(view.submenu[1].accelerator, "Control+Command+F");
@@ -63,6 +68,7 @@ test("macOS menu uses native app, window, and keyboard conventions", () => {
 
 test("Windows menu conventions remain unchanged", () => {
   const windows = createMenuTemplate({ isMac: false, productName: "PokeRogue Electron", ...callbacks() });
+  assert.deepEqual(windows.map(item => item.label), ["Game", "Saves", "View", "Tools", "Cheats", "Profiles"]);
   assert.equal(windows[0].submenu.at(-1).role, "quit");
   assert.equal(windows.some(item => item.label === "File"), false);
   const view = windows.find(item => item.label === "View");

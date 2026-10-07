@@ -127,7 +127,7 @@ async function createHarness() {
       await click("Type Chart");
       const chart = state.instances.find(window => window.role === "chart");
       chart.emit("ready-to-show");
-      await click("Configure Cheats...");
+      await click("Configure Cheats…");
       const editor = state.instances.find(window => window.role === "editor");
       await click("Restore Backup…");
       const backupWindow = state.instances.find(window => window.role === "backups");
@@ -185,7 +185,7 @@ async function createHarness() {
       }
       state.coldSnapshot = { flushes: state.flushes, validations: state.validations, relaunches: state.relaunches, args: state.relaunchArgs, created: state.coordinator.created, games: games().length };
     } else if (["cheat-request", "cheat-cancel", "cheat-veto"].includes(process.env.R06_SCENARIO)) {
-      await click("Configure Cheats...");
+      await click("Configure Cheats…");
       const editor = state.instances.find(window => window.role === "editor");
       const result = await state.handlers["cheats:apply"]({ sender: { id: editor.webContents.id } }, { enabled: true });
       if (process.env.R06_SCENARIO === "cheat-request" || process.env.R06_SCENARIO === "cheat-veto") {
