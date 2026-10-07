@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { STORAGE_DIRECTORY_NAME } from "../src/constants.mjs";
 
 import {
   attachPackaged,
@@ -237,8 +238,10 @@ test("the unchanged packaged Electron app completes Backup flows and recovers fa
   const states = [];
   let portBase = randomInt(16_000, 48_000);
   const newProfile = async () => {
-    const profile = await mkdtemp(join(tmpdir(), "pokerogue-r20-packaged-profile-"));
-    profiles.push(profile);
+    const parent = await mkdtemp(join(tmpdir(), "pokerogue-r20-packaged-profile-"));
+    profiles.push(parent);
+    const profile = join(parent, STORAGE_DIRECTORY_NAME);
+    await mkdir(profile);
     return profile;
   };
   const launch = async (scenario, dialogResponse = 0, userData) => {

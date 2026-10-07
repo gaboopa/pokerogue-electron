@@ -136,6 +136,9 @@ function installPackagedProbe(config) {
   app.setPath("userData", userData);
   app.setPath("sessionData", sessionData);
   if (app.getPath("userData") !== userData || app.getPath("sessionData") !== sessionData) throw new Error("Electron did not retain both isolated profile paths");
+  // bootstrap pins userData to <appData>/<storage folder>; answer with the isolated parent so the pin lands on this profile.
+  const originalGetPath = app.getPath.bind(app);
+  app.getPath = name => name === "appData" ? appPath.dirname(userData) : originalGetPath(name);
   process.argv = process.argv.filter(argument => !argument.startsWith("--inspect"));
   app.commandLine.appendSwitch("remote-debugging-port", String(config.remotePort));
 
