@@ -2,6 +2,7 @@ import { app, dialog } from "electron";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { BACKUP_TOKEN_PATTERN, PRODUCT_NAME } from "./constants.mjs";
+import { resolveActiveProfile } from "./profiles.mjs";
 
 const require = createRequire(import.meta.url);
 const args = process.argv.slice(1);
@@ -83,12 +84,18 @@ function start() {
   const mode = parseArguments();
   const testSource = process.env.POKEROGUE_R17_TEST_SOURCE;
   if (testSource && (!mode.probe || app.isPackaged)) throw new Error("Disposable R17 source profile is only valid in a development probe launch");
-  const sourceUserData = resolve(testSource || app.getPath("userData"));
-  const sourceSessionData = testSource ? sourceUserData : resolve(app.getPath("sessionData"));
-  setProfilePaths(sourceUserData, sourceSessionData);
+  const root = resolve(testSource || app.getPath("userData"));
+  const rootSessionData = testSource ? root : resolve(app.getPath("sessionData"));
+  setProfilePaths(root, rootSessionData);
 
   const lockAcquired = app.requestSingleInstanceLock({ mode: mode.mode, token: mode.token ?? null });
   if (!lockAcquired) throw new Error("Another process already owns the source profile; startup refused before opening a session");
+
+  const profile = resolveActiveProfile(root);
+  const sourceUserData = profile.directory;
+  const sourceSessionData = profile.name === null ? rootSessionData : profile.directory;
+  if (profile.name !== null) setProfilePaths(sourceUserData, sourceSessionData);
+  globalThis[Symbol.for("pokerogue.profile-context")] = Object.freeze({ root, name: profile.name });
 
   if (mode.mode === "worker") {
     const workerProfile = join(sourceUserData, `.backup-worker-${mode.token}`);

@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import electron from "electron";
 import { createIntent } from "../src/backup-coordinator.mjs";
+import { createProfile, setActiveProfile } from "../src/profiles.mjs";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const execFileAsync = promisify(execFile);
@@ -253,6 +254,16 @@ async function runRound(parentRoot, origin, round, workerMode = "worker") {
     assert.match(normalRefusal.stderr, /already owns the source profile/);
     assert.equal((await waitJson(join(root, `failure-dialog-${normalCompetitor.pid}.json`))).intercepted, true);
     assert.equal(existsSync(join(root, "verified.json")), false, "refused normal launch must stop before its test continuation");
+
+    createProfile(source, "Other");
+    setActiveProfile(source, "Other");
+    const profileCompetitor = launchElectron(["--r17-probe=verify"], { root, source, origin, round: String(round) });
+    children.add(profileCompetitor.child);
+    const profileRefusal = await profileCompetitor.done;
+    setActiveProfile(source, null);
+    assert.notEqual(profileRefusal.code, 0, "a launch on a different profile must be refused while another instance runs");
+    assert.match(profileRefusal.stderr, /already owns the source profile/);
+    assert.equal(existsSync(join(root, "verified.json")), false, "refused cross-profile launch must stop before its test continuation");
 
     await writeFile(join(root, "continue-parent"), "go");
     relaunchArmed = true;

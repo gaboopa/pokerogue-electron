@@ -42,3 +42,7 @@ _Avoid_: update
 **Local configuration**:
 Wrapper-specific user preferences, including keybindings and cheat settings, that are kept separately from save data.
 _Avoid_: save data, game state
+
+**Profile**:
+An independent set of Save data, cheat settings and Backups; the default profile is the original installation's data.
+_Avoid_: account, user, slot

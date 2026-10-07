@@ -11,6 +11,10 @@ export function createMenuTemplate({
   utilities,
   keybindings,
   cheats,
+  profileNames = [],
+  activeProfile = null,
+  onSelectProfile = () => {},
+  onNewProfile = () => {},
 }) {
   const appSubmenu = [
     ...(isMac ? [{ role: "about" }, { type: "separator" }] : []),
@@ -39,6 +43,13 @@ export function createMenuTemplate({
     { label: "Developer Tools", accelerator: isMac ? "Alt+Command+I" : "F12", click: onDeveloperTools },
   ];
 
+  const profiles = [
+    { label: "Default", type: "radio", checked: activeProfile === null, click: () => onSelectProfile(null) },
+    ...profileNames.map(name => ({ label: name, type: "radio", checked: activeProfile === name, click: () => onSelectProfile(name) })),
+    { type: "separator" },
+    { label: "New Profile…", click: onNewProfile },
+  ];
+
   const template = [
     { label: productName, submenu: appSubmenu },
     ...(isMac ? [{ label: "File", submenu: [{ role: "close" }] }] : []),
@@ -46,6 +57,7 @@ export function createMenuTemplate({
     { label: "Utilities", submenu: utilities },
     { label: "Keybindings", submenu: keybindings },
     { label: "Cheats", submenu: cheats },
+    { label: "Profiles", submenu: profiles },
     ...(isMac
       ? [{ label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "front" }] }]
       : []),

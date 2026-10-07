@@ -7,6 +7,8 @@ import { pruneAutomaticBackups, pruneUpdateDownloads } from "./retention.mjs";
 import { BackupRestoreError, restoreBackup, validateBackup } from "./backup.mjs";
 import { applyCheatConfiguration } from "./cheats.mjs";
 import { createCheatController } from "./cheat-main.mjs";
+import { assertValidProfileName, createProfile, listProfiles, setActiveProfile } from "./profiles.mjs";
+import { createProfileController } from "./profile-main.mjs";
 import { keymapModifiedAt, loadKeymap, resetKeymap } from "./keymap-store.mjs";
 import { checkForUpdate, downloadVerified } from "./updater.mjs";
 import { registerGameProtocol } from "./protocol.mjs";
@@ -24,6 +26,7 @@ let mainWindow;
 let keymapMtime = 0;
 const chartWindows = new Map();
 let cheatController;
+let profileController;
 let startupRecoveryBlocked = false;
 let startupReady = false;
 let startupRestarting = false;
@@ -60,7 +63,48 @@ function showColdBackupFailed(intent, detail) {
 
 function paths() {
   const userData = app.getPath("userData");
-  return { userData, backupRoot: join(userData, "Save Backups"), downloadRoot: join(userData, "Updates"), keymap: join(userData, "keymap.json"), cheats: join(userData, "cheats.json") };
+  const root = globalThis[Symbol.for("pokerogue.profile-context")]?.root ?? userData;
+  return { root, userData, backupRoot: join(userData, "Save Backups"), downloadRoot: join(userData, "Updates"), keymap: join(root, "keymap.json"), cheats: join(userData, "cheats.json") };
+}
+
+async function profileSwitchBusy() {
+  if (backupRequestActive || await readCurrentIntent({ userData: paths().userData })) return true;
+  try { await readFile(restoreMarkerPath(), "utf8"); return true; }
+  catch (error) { if (error.code === "ENOENT") return false; throw error; }
+}
+
+function showProfileBusy() {
+  return showMessageBox({ type: "info", title: "Profile switch unavailable", message: "Finish the pending Backup, Restore or Update before switching profiles." });
+}
+
+async function flushAndRestartForProfile() {
+  const window = getLiveMainWindow();
+  if (window) await window.webContents.session.flushStorageData();
+  app.relaunch();
+  app.quit();
+}
+
+async function switchProfile(name) {
+  const current = globalThis[Symbol.for("pokerogue.profile-context")]?.name ?? null;
+  if (name === current) return;
+  if (await profileSwitchBusy()) { await showProfileBusy(); createMenu(); return; }
+  const result = await showMessageBox({
+    type: "question", title: "Switch profile", message: `Switch to "${name ?? "Default"}"?`,
+    detail: "PokeRogue Offline will restart. Each profile has its own Save data, cheat settings and Backups.",
+    buttons: ["Switch and Restart", "Cancel"], defaultId: 1, cancelId: 1, noLink: true,
+  });
+  if (result.response !== 0) { createMenu(); return; }
+  setActiveProfile(paths().root, name);
+  await flushAndRestartForProfile();
+}
+
+async function createAndRestartProfile(name) {
+  assertValidProfileName(name);
+  if (await profileSwitchBusy()) { await showProfileBusy(); return { busy: true }; }
+  const { root } = paths();
+  createProfile(root, name);
+  setActiveProfile(root, name);
+  await flushAndRestartForProfile();
 }
 
 async function reloadKeybindings(expectedWindow = getLiveMainWindow()) {
@@ -600,6 +644,7 @@ function createMenu() {
   ];
   const utilities = createUtilitiesSubmenu({ openExternal: openExternalUtility, openChart: toggleChartWindow });
   const cheats = [{ label: "Configure Cheats...", click: () => cheatController.openWindow() }];
+  const profileContext = globalThis[Symbol.for("pokerogue.profile-context")];
   Menu.setApplicationMenu(Menu.buildFromTemplate(createMenuTemplate({
     isMac,
     productName: PRODUCT_NAME,
@@ -613,6 +658,10 @@ function createMenu() {
     utilities,
     keybindings,
     cheats,
+    profileNames: listProfiles(paths().root),
+    activeProfile: profileContext?.name ?? null,
+    onSelectProfile: name => { void switchProfile(name).catch(error => { createMenu(); dialog.showErrorBox("Profile switch failed", error.message); }); },
+    onNewProfile: () => profileController.openWindow(),
   })));
 }
 
@@ -623,6 +672,11 @@ async function createWindow() {
     webPreferences: { preload: join(moduleRoot, "src", "preload-cheats.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
   });
   mainWindow = window;
+  const activeProfile = globalThis[Symbol.for("pokerogue.profile-context")]?.name;
+  if (activeProfile) {
+    window.setTitle(`${PRODUCT_NAME} — ${activeProfile}`);
+    window.webContents.on("page-title-updated", event => event.preventDefault());
+  }
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => { if (!url.startsWith(`${APP_ORIGIN}/`)) event.preventDefault(); });
   window.webContents.on("before-input-event", (event, input) => {
@@ -691,6 +745,11 @@ app.whenReady().then(async () => {
     relaunch: async () => { app.relaunch(); app.quit(); },
   });
   cheatController.registerIpc();
+  profileController = createProfileController({
+    moduleRoot, icon: windowIcon, getMainWindow: getLiveMainWindow,
+    createAndRestart: createAndRestartProfile,
+  });
+  profileController.registerIpc();
   createMenu();
   await createWindow();
   startupReady = true;

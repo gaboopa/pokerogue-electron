@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>New Profile</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+  <main>
+    <h1>New Profile</h1>
+    <form id="create-form">
+      <label for="profile-name">Profile name</label>
+      <input id="profile-name" type="text" autocomplete="off" autofocus>
+      <p id="error" role="alert" aria-live="polite"></p>
+      <div class="buttons"><button id="cancel" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Create and Restart</button></div>
+    </form>
+  </main>
+  <script type="module" src="renderer.mjs"></script>
+</body>
+</html>

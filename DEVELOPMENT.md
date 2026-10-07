@@ -120,7 +120,7 @@ npm run release:manifest -- --base release-manifest.json \
 
 ## Save compatibility
 
-Do not change the application ID (`com.gaboopa.pokerogueoffline`), product name, Electron `userData` location, or `app://game` origin after release without implementing and testing a storage migration.
+Do not change the application ID (`com.gaboopa.pokerogueoffline`), product name, default profile's Electron `userData` location, or `app://game` origin after release without implementing and testing a storage migration. The default profile's location is the one that must never move. Named profiles live under `Profiles/`.
 
 The NSIS uninstaller preserves application data. Native backups include Chromium local storage, IndexedDB, and session storage, carry a deterministic checksum, and restore transactionally with rollback.
 

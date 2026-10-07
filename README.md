@@ -71,6 +71,10 @@ New Backups use schema version 2. Their SHA-256 checksum covers the canonical st
 
 PokeRogue Offline can also restore valid schema version 1 Backups after checking their exact storage inventory and original data-tree checksum. Version 1 checksums did not cover manifest metadata, so fields such as the creation time have weaker integrity than version 2 metadata.
 
+### Profiles
+
+Use the **Profiles** menu to create a profile or switch to another one. Each profile has its own Save data, cheat settings and Backups, so you can keep one profile for normal play and another for cheats. Keybindings are shared across profiles. Switching profiles restarts the app. The default profile stays in the existing `userData` folder; named profiles live under its `Profiles/` folder, with the active profile recorded in `active-profile.json` beside it.
+
 ## Updating
 
 The app never checks silently. Select **PokéRogue Offline → Check for Updates** when you want to check.
