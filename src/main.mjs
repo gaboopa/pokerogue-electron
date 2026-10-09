@@ -1,13 +1,14 @@
-import { app, BrowserWindow, dialog, Menu, protocol, session, shell } from "electron";
+import { app, BrowserWindow, WebContentsView, dialog, Menu, protocol, session, shell, ipcMain } from "electron";
 // Namespace import: the test shims for "electron" do not export clipboard.
 import * as electron from "electron";
+const { screen } = electron;
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_ORIGIN, AUTOMATIC_BACKUPS_KEPT, BACKUP_TOKEN_PATTERN, PRODUCT_NAME, UPDATE_REPOSITORY } from "./constants.mjs";
 import { offerOldInstallers, pruneAutomaticBackups, pruneUpdateDownloads } from "./retention.mjs";
 import { BackupRestoreError, restoreBackup, validateBackup } from "./backup.mjs";
-import { applyCheatConfiguration } from "./cheats.mjs";
+import { applyCheatConfiguration, loadCheatDocument } from "./cheats.mjs";
 import { createCheatController } from "./cheat-main.mjs";
 import { createBackupController } from "./backup-main.mjs";
 import { assertValidProfileName, createProfile, listProfiles, setActiveProfile } from "./profiles.mjs";
@@ -19,6 +20,8 @@ import { createUtilitiesSubmenu } from "./utilities.mjs";
 import { createMenuTemplate } from "./menu.mjs";
 import { clearTerminalIntent, createIntent, prepareResumeIntent, readCurrentIntent, recoverStaleIntentLock, revalidateResumingUpdate, transitionIntent } from "./backup-coordinator.mjs";
 import { formatDiagnosticReport, summarizeBackups } from "./diagnostics.mjs";
+import { showThemedMessageBox } from "./dialog-main.mjs";
+import { activateMenuItem, calculateViewBounds, serializeMenuTemplate, trackLoneAlt, transitionFullscreenReveal } from "./window-bar.mjs";
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, stream: true } }]);
 app.setName(PRODUCT_NAME);
@@ -27,6 +30,13 @@ const moduleRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const windowIcon = process.platform === "win32" ? join(moduleRoot, "build", "icon.ico") : undefined;
 const gameRoot = app.isPackaged ? join(process.resourcesPath, "game") : join(moduleRoot, "staging", "game");
 let mainWindow;
+let gameView;
+let barView;
+let mainMenuTemplate = [];
+let menuOpen = false;
+let fullscreenReveal = { revealed: false, belowSince: null };
+let fullscreenPointerInterval;
+let barMaximized;
 let keymapMtime = 0;
 const chartWindows = new Map();
 let cheatController;
@@ -37,6 +47,9 @@ let startupReady = false;
 let startupRestarting = false;
 let backupRequestPromise;
 let backupRequestActive = false;
+let updateWindow;
+let updateAbortController;
+let updateProgressState;
 
 function getLiveMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
@@ -44,8 +57,127 @@ function getLiveMainWindow() {
   return undefined;
 }
 
+function getGameWebContents() {
+  return getLiveMainWindow() && gameView ? gameView.webContents : undefined;
+}
+
+function updateMainViewLayout() {
+  const window = getLiveMainWindow();
+  if (!window || !gameView || !barView) return;
+  const [width, height] = window.getContentSize();
+  const layout = calculateViewBounds(width, height, window.isFullScreen(), menuOpen, fullscreenReveal.revealed);
+  gameView.setBounds(layout.game);
+  barView.setBounds(layout.bar);
+  barView.setVisible(layout.barVisible);
+}
+
+function stopFullscreenPointerTracking() {
+  if (fullscreenPointerInterval) clearInterval(fullscreenPointerInterval);
+  fullscreenPointerInterval = undefined;
+}
+
+function updateFullscreenPointerTracking(window) {
+  stopFullscreenPointerTracking();
+  if (process.platform === "darwin" || mainWindow !== window || window.isDestroyed() || !window.isFullScreen() || !window.isFocused()) return;
+  fullscreenPointerInterval = setInterval(() => {
+    if (mainWindow !== window || window.isDestroyed() || !window.isFullScreen() || !window.isFocused()) { stopFullscreenPointerTracking(); return; }
+    const bounds = window.getBounds();
+    const point = screen.getCursorScreenPoint();
+    const x = point.x - bounds.x, y = point.y - bounds.y;
+    const inside = x >= 0 && x < bounds.width && y >= 0 && y < bounds.height;
+    const next = transitionFullscreenReveal(fullscreenReveal, { type: "pointer", atTop: inside && y <= 4, belowBar: inside && y >= 48 }, Date.now(), menuOpen);
+    const wasRevealed = fullscreenReveal.revealed;
+    fullscreenReveal = next;
+    if (fullscreenReveal.revealed !== wasRevealed) updateMainViewLayout();
+  }, 50);
+}
+
+async function pushBarState() {
+  if (!barView || barView.webContents.isDestroyed()) return;
+  const profileName = globalThis[Symbol.for("pokerogue.profile-context")]?.name ?? null;
+  try {
+    const document = await loadCheatDocument(paths().cheats);
+    if (!barView || barView.webContents.isDestroyed()) return;
+    barMaximized = getLiveMainWindow()?.isMaximized() ?? false;
+    barView.webContents.send("bar:state", {
+      menus: serializeMenuTemplate(mainMenuTemplate, process.platform), profileName,
+      cheatsEnabled: document.config.enabled, mac: process.platform === "darwin", maximized: barMaximized, update: updateProgressState ?? null,
+    });
+  } catch (error) { console.error(`Could not load cheat status for title bar: ${error.message}`); }
+}
+
+function pushMaximizedState() {
+  if (!barView || barView.webContents.isDestroyed()) return;
+  const maximized = getLiveMainWindow()?.isMaximized() ?? false;
+  if (maximized === barMaximized) return;
+  barMaximized = maximized;
+  barView.webContents.send("bar:state", { maximized });
+}
+
+function registerBarIpc() {
+  ipcMain.on("bar:activate", (event, id) => {
+    if (!barView || event.sender.id !== barView.webContents.id) return;
+    const result = activateMenuItem({ template: mainMenuTemplate, id, senderId: event.sender.id, barId: barView.webContents.id });
+    if (result === "quit") app.quit();
+    else if (result === "minimize") getLiveMainWindow()?.minimize();
+    else if (result === "close") getLiveMainWindow()?.close();
+    else if (result === "zoom") { const window = getLiveMainWindow(); if (window) window.isMaximized() ? window.unmaximize() : window.maximize(); }
+  });
+  ipcMain.on("bar:menu-opened", event => { if (barView && event.sender.id === barView.webContents.id) { menuOpen = true; fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "menu-open" }, Date.now()); barView.webContents.focus(); updateMainViewLayout(); } });
+  ipcMain.on("bar:menu-closed", event => { if (barView && event.sender.id === barView.webContents.id) { menuOpen = false; updateMainViewLayout(); getGameWebContents()?.focus(); } });
+  ipcMain.on("bar:escape", event => { if (barView && event.sender.id === barView.webContents.id && getLiveMainWindow()?.isFullScreen()) { menuOpen = false; fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "escape" }, Date.now()); updateMainViewLayout(); getGameWebContents()?.focus(); } });
+  ipcMain.on("bar:minimize", event => { if (barView && event.sender.id === barView.webContents.id) getLiveMainWindow()?.minimize(); });
+  ipcMain.on("bar:toggle-maximize", event => { if (!barView || event.sender.id !== barView.webContents.id) return; const window = getLiveMainWindow(); if (window) window.isMaximized() ? window.unmaximize() : window.maximize(); });
+  ipcMain.on("bar:close", event => { if (barView && event.sender.id === barView.webContents.id) getLiveMainWindow()?.close(); });
+  ipcMain.on("bar:open-update", event => { if (barView && event.sender.id === barView.webContents.id) openUpdateWindow(); });
+  ipcMain.on("update:cancel", event => { if (updateWindow && !updateWindow.isDestroyed() && event.sender.id === updateWindow.webContents.id && updateAbortController) updateAbortController.abort(); });
+  ipcMain.on("update:close", event => { if (updateWindow && !updateWindow.isDestroyed() && event.sender.id === updateWindow.webContents.id) updateWindow.close(); });
+}
+
+function publishUpdateProgress(progress) {
+  updateProgressState = progress;
+  if (barView && !barView.webContents.isDestroyed()) barView.webContents.send("bar:state", { update: progress });
+  if (updateWindow && !updateWindow.isDestroyed()) updateWindow.webContents.send("update:progress", progress);
+  if (!progress && updateWindow && !updateWindow.isDestroyed()) updateWindow.close();
+}
+
+function openUpdateWindow() {
+  if (!updateProgressState) return;
+  if (updateWindow && !updateWindow.isDestroyed()) { updateWindow.show(); updateWindow.focus(); return; }
+  const parent = getLiveMainWindow();
+  if (!parent) return;
+  const window = new BrowserWindow({
+    width: 560, height: 300, parent, modal: false, frame: false, resizable: false, show: false, autoHideMenuBar: true,
+    title: `Updating to ${updateProgressState.version}`,
+    webPreferences: { preload: join(moduleRoot, "src", "update-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+  });
+  updateWindow = window;
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("will-navigate", event => event.preventDefault());
+  window.webContents.on("did-finish-load", () => {
+    if (updateWindow !== window || window.isDestroyed()) return;
+    if (!updateProgressState) { window.close(); return; }
+    window.webContents.send("update:progress", updateProgressState);
+    setTimeout(async () => {
+      if (updateWindow !== window || window.isDestroyed()) return;
+      window.setContentSize(560, await window.webContents.executeJavaScript("document.fonts.ready.then(() => document.body.scrollHeight)"));
+      if (updateWindow === window && !window.isDestroyed()) window.show();
+    }, 50);
+  });
+  window.on("closed", () => { if (updateWindow === window) updateWindow = undefined; });
+  void window.loadFile(join(moduleRoot, "src", "update-window", "index.html"));
+}
+
 function showMessageBox(options, parent = getLiveMainWindow()) {
-  return parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options);
+  return parent && !parent.isDestroyed() ? showThemedMessageBox(parent, options) : dialog.showMessageBox(options);
+}
+
+function showErrorBox(title, message) {
+  const parent = getLiveMainWindow();
+  if (parent) return showThemedMessageBox(parent, { type: "error", title, message, buttons: ["OK"] }).catch(error => {
+    process.stderr.write(`Could not show error dialog: ${error.message}\n`);
+  });
+  return dialog.showErrorBox(title, message);
 }
 
 function showOpenDialog(options, parent = getLiveMainWindow()) {
@@ -131,7 +263,7 @@ function showProfileBusy() {
 
 async function flushAndRestartForProfile() {
   const window = getLiveMainWindow();
-  if (window) await window.webContents.session.flushStorageData();
+  if (window) await getGameWebContents()?.session.flushStorageData();
   app.relaunch();
   app.quit();
 }
@@ -166,7 +298,7 @@ async function reloadKeybindings(expectedWindow = getLiveMainWindow()) {
     keymapMtime = modifiedAt;
   } else if (mainWindow === expectedWindow && !expectedWindow.isDestroyed()) {
     keymapMtime = modifiedAt;
-    expectedWindow.webContents.send("keybindings:update", mappings);
+    getGameWebContents()?.send("keybindings:update", mappings);
   }
   return mappings;
 }
@@ -174,7 +306,7 @@ async function reloadKeybindings(expectedWindow = getLiveMainWindow()) {
 async function openKeybindingsFile() {
   await reloadKeybindings();
   const error = await shell.openPath(paths().keymap);
-  if (error) dialog.showErrorBox("Could not open keybindings", error);
+  if (error) showErrorBox("Could not open keybindings", error);
 }
 
 async function resetKeybindings() {
@@ -183,7 +315,7 @@ async function resetKeybindings() {
 }
 
 function openExternalUtility(url) {
-  void shell.openExternal(url).catch(error => dialog.showErrorBox("Could not open utility", error.message));
+  void shell.openExternal(url).catch(error => showErrorBox("Could not open utility", error.message));
 }
 
 function toggleChartWindow(chart) {
@@ -194,7 +326,7 @@ function toggleChartWindow(chart) {
     return;
   }
   const chartWindow = new BrowserWindow({
-    width: chart.width, height: chart.height, show: false, autoHideMenuBar: true,
+    width: chart.width, height: chart.height + 48, useContentSize: true, show: false, autoHideMenuBar: true, frame: false, title: chart.label,
     ...(windowIcon ? { icon: windowIcon } : {}),
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
   });
@@ -207,7 +339,7 @@ function toggleChartWindow(chart) {
   chartWindow.on("closed", () => {
     if (chartWindows.get(chart.id) === chartWindow) chartWindows.delete(chart.id);
   });
-  void chartWindow.loadFile(join(moduleRoot, "src", "assets", chart.asset));
+  void chartWindow.loadFile(join(moduleRoot, "src", "chart-window", "index.html"), { query: { chart: chart.id } });
 }
 
 function workerArgs(token) {
@@ -240,7 +372,7 @@ async function failColdIntent(intent, message, code = "continuation-failed", { s
 function reportColdIntentFailure(error) {
   backupRequestActive = true;
   startupRestarting = false;
-  try { dialog.showErrorBox("Backup request needs attention", `The request status could not be safely recorded. No new Backup will start until the application is restarted.\n\n${error.message}`); }
+  try { showErrorBox("Backup request needs attention", `The request status could not be safely recorded. No new Backup will start until the application is restarted.\n\n${error.message}`); }
   catch (reportError) { process.stderr.write(`Could not report Backup request failure: ${reportError.message}\n`); }
 }
 
@@ -254,7 +386,7 @@ async function requestColdBackup(operation, payload, reserved = false) {
     let intent;
     try {
       const window = getLiveMainWindow();
-      if (window) await window.webContents.session.flushStorageData();
+      if (window) await getGameWebContents()?.session.flushStorageData();
       intent = await createIntent({ userData: paths().userData, operation, payload });
       startupRestarting = true;
       let quitReached = false;
@@ -663,16 +795,29 @@ async function performUpdateCheck() {
     const answer = await showMessageBox({ type: "info", title: "Update available", message: `Version ${result.manifest.version} is available.`, detail: "Downloading requires a restart to make the cold Backup before the installer can be opened. Continue?", buttons: ["Download and Restart", "Cancel"], defaultId: 0, cancelId: 1 });
     if (answer.response !== 0) return { available: true, downloaded: false };
     let lastPercent = -1;
+    let lastPublishedPercent = 0;
+    updateAbortController = new AbortController();
+    publishUpdateProgress({ version: result.manifest.version, received: 0, total: result.artifact.size });
     const onProgress = (received, total) => {
       const percent = Math.floor(received / total * 100);
-      if (percent === lastPercent) return;
-      lastPercent = percent;
-      getLiveMainWindow()?.setProgressBar(received / total);
+      if (percent !== lastPercent) {
+        lastPercent = percent;
+        getLiveMainWindow()?.setProgressBar(received / total);
+      }
+      const publishedPercent = Math.round(received / total * 100);
+      if (publishedPercent === lastPublishedPercent) return;
+      lastPublishedPercent = publishedPercent;
+      publishUpdateProgress({ version: result.manifest.version, received, total });
     };
     try {
-      await downloadVerified(result.artifact, paths().downloadRoot, { onProgress });
+      await downloadVerified(result.artifact, paths().downloadRoot, { onProgress, signal: updateAbortController.signal });
+    } catch (error) {
+      if (error.code === "UPDATE_CANCELLED") return { available: true, downloaded: false, cancelled: true };
+      throw error;
     } finally {
       getLiveMainWindow()?.setProgressBar(-1);
+      updateAbortController = undefined;
+      publishUpdateProgress(null);
     }
     const requested = await requestColdBackup("update", { manifest: result.manifest, platform, arch: process.arch }, true);
     keepReservation = requested.requested || requested.journalPending;
@@ -696,14 +841,14 @@ function installNetworkPolicy() {
 function createMenu() {
   const isMac = process.platform === "darwin";
   const keybindings = [
-    { label: "Open Keybindings File...", click: () => void openKeybindingsFile() },
+    { label: "Open Keybindings File…", click: () => void openKeybindingsFile() },
     { label: "Reload Keybindings", click: () => void reloadKeybindings() },
     { label: "Reset to Defaults", click: () => void resetKeybindings() },
   ];
   const utilities = createUtilitiesSubmenu({ openExternal: openExternalUtility, openChart: toggleChartWindow });
-  const cheats = [{ label: "Configure Cheats...", click: () => cheatController.openWindow() }];
+  const cheats = [{ label: "Configure Cheats…", click: () => cheatController.openWindow() }];
   const profileContext = globalThis[Symbol.for("pokerogue.profile-context")];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(createMenuTemplate({
+  mainMenuTemplate = createMenuTemplate({
     isMac,
     productName: PRODUCT_NAME,
     onCheckForUpdates: performUpdateCheck,
@@ -711,58 +856,103 @@ function createMenu() {
     onRestore: () => backupController.openWindow(),
     onOpenSaveFolder: () => shell.openPath(paths().userData),
     onCopyDiagnosticReport: () => { void copyDiagnosticReport(); },
-    onReload: () => getLiveMainWindow()?.reload(),
+    onReload: () => getGameWebContents()?.reload(),
     onToggleFullscreen: () => { const window = getLiveMainWindow(); if (window) window.setFullScreen(!window.isFullScreen()); },
-    onDeveloperTools: () => getLiveMainWindow()?.webContents.toggleDevTools(),
+    onDeveloperTools: () => getGameWebContents()?.toggleDevTools(),
     utilities,
     keybindings,
     cheats,
     profileNames: listProfiles(paths().root),
     activeProfile: profileContext?.name ?? null,
-    onSelectProfile: name => { void switchProfile(name).catch(error => { createMenu(); dialog.showErrorBox("Profile switch failed", error.message); }); },
+    onSelectProfile: name => { void switchProfile(name).catch(error => { createMenu(); showErrorBox("Profile switch failed", error.message); }); },
     onNewProfile: () => profileController.openWindow(),
-  })));
+  });
+  serializeMenuTemplate(mainMenuTemplate, process.platform);
+  Menu.setApplicationMenu(Menu.buildFromTemplate(mainMenuTemplate));
+  pushBarState();
 }
 
 async function createWindow() {
+  const isMac = process.platform === "darwin";
+  const profileName = globalThis[Symbol.for("pokerogue.profile-context")]?.name ?? null;
   const window = new BrowserWindow({
     width: 1280, height: 800, minWidth: 800, minHeight: 600, backgroundColor: "#000000", show: false,
+    ...(isMac ? { titleBarStyle: "hidden", trafficLightPosition: { x: 20, y: 18 } } : { frame: false }),
+    autoHideMenuBar: !isMac,
+    title: `${PRODUCT_NAME}${profileName ? ` — ${profileName}` : ""}`,
     ...(windowIcon ? { icon: windowIcon } : {}),
-    webPreferences: { preload: join(moduleRoot, "src", "preload-cheats.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
   });
   mainWindow = window;
-  const activeProfile = globalThis[Symbol.for("pokerogue.profile-context")]?.name;
-  if (activeProfile) {
-    window.setTitle(`${PRODUCT_NAME} — ${activeProfile}`);
-    window.webContents.on("page-title-updated", event => event.preventDefault());
-  }
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.webContents.on("will-navigate", (event, url) => { if (!url.startsWith(`${APP_ORIGIN}/`)) event.preventDefault(); });
-  window.webContents.on("before-input-event", (event, input) => {
+  menuOpen = false;
+  fullscreenReveal = { revealed: false, belowSince: null };
+  if (!isMac) window.setMenuBarVisibility(false);
+  gameView = new WebContentsView({ webPreferences: { preload: join(moduleRoot, "src", "preload-cheats.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
+  barView = new WebContentsView({ webPreferences: { preload: join(moduleRoot, "src", "bar-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
+  barView.setBackgroundColor("#00000000");
+  window.contentView.addChildView(gameView);
+  window.contentView.addChildView(barView);
+  const gameContents = gameView.webContents;
+  gameContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  gameContents.on("will-navigate", (event, url) => { if (!url.startsWith(`${APP_ORIGIN}/`)) event.preventDefault(); });
+  barView.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  barView.webContents.on("will-navigate", event => event.preventDefault());
+  let loneAltPending = false;
+  gameContents.on("before-input-event", (event, input) => {
+    const alt = trackLoneAlt(loneAltPending, input);
+    loneAltPending = alt.pending;
+    if (alt.activate) {
+      if (window.isFullScreen()) {
+        fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "alt" }, Date.now(), menuOpen);
+        updateMainViewLayout();
+        if (!fullscreenReveal.revealed) return;
+      }
+      event.preventDefault();
+      barView.webContents.focus();
+      barView.webContents.send("bar:state", { openMenu: true });
+      return;
+    }
+    if (window.isFullScreen() && input.type === "keyDown" && input.key === "Escape") {
+      fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "escape" }, Date.now(), menuOpen);
+      updateMainViewLayout();
+    }
     if (input.type !== "keyDown" || input.control || input.meta || input.alt) return;
-    if (input.key === "F5") { event.preventDefault(); if (mainWindow === window && !window.isDestroyed()) window.reload(); }
+    if (input.key === "F5") { event.preventDefault(); if (mainWindow === window && !window.isDestroyed()) gameContents.reload(); }
   });
-  window.webContents.on("did-finish-load", () => {
+  gameContents.on("did-finish-load", () => {
     if (mainWindow === window && !window.isDestroyed()) void reloadKeybindings(window);
   });
+  barView.webContents.on("did-finish-load", () => {
+    if (mainWindow === window && !window.isDestroyed()) window.show();
+    void pushBarState();
+  });
+  for (const event of ["resize", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"]) window.on(event, () => {
+    if (event === "leave-full-screen") fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "leave-fullscreen" }, Date.now());
+    updateFullscreenPointerTracking(window);
+    updateMainViewLayout(); pushMaximizedState();
+  });
+  window.on("blur", stopFullscreenPointerTracking);
   window.on("focus", async () => {
     if (mainWindow !== window || window.isDestroyed()) return;
+    updateFullscreenPointerTracking(window);
     try { if (await keymapModifiedAt(paths().keymap) !== keymapMtime && mainWindow === window && !window.isDestroyed()) await reloadKeybindings(window); }
     catch (error) { console.warn(`Could not refresh keybindings: ${error.message}`); }
   });
-  window.once("ready-to-show", () => {
-    if (mainWindow === window && !window.isDestroyed()) window.show();
-  });
   window.on("closed", () => {
-    if (mainWindow === window) mainWindow = undefined;
+    stopFullscreenPointerTracking();
+    if (mainWindow === window) { mainWindow = undefined; gameView = undefined; barView = undefined; }
   });
   try {
-    await window.loadURL(`${APP_ORIGIN}/index.html`);
+    updateFullscreenPointerTracking(window);
+    updateMainViewLayout();
+    await Promise.all([gameContents.loadURL(`${APP_ORIGIN}/index.html`), barView.webContents.loadFile(join(moduleRoot, "src", "bar-window", "index.html"))]);
   } catch (error) {
     if (window.isDestroyed() || mainWindow !== window) return;
     mainWindow = undefined;
+    gameView = undefined;
+    barView = undefined;
     window.destroy();
-    dialog.showErrorBox("Could not load game", error.message);
+    showErrorBox("Could not load game", error.message);
   }
 }
 
@@ -824,6 +1014,7 @@ app.whenReady().then(async () => {
   if (startupRecoveryBlocked || startupRestarting) return;
   await pruneStaleFiles();
   await reloadKeybindings();
+  registerBarIpc();
   registerGameProtocol(protocol, gameRoot);
   installNetworkPolicy();
   cheatController = createCheatController({
@@ -835,7 +1026,7 @@ app.whenReady().then(async () => {
       if (requested.busy) throw new Error("Another Backup continuation is already in progress.");
       throw new Error(requested.error ?? "The cold Backup could not be started.");
     },
-    relaunch: async () => { app.relaunch(); app.quit(); },
+    relaunch: async () => { await pushBarState(); app.relaunch(); app.quit(); },
   });
   cheatController.registerIpc();
   profileController = createProfileController({

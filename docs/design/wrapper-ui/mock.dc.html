@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+@font-face{font-family:Emerald;src:url(assets/pokemon-emerald-pro.ttf) format("truetype");}
+html{background:#1d1a22;}
+body{margin:0;background:#1d1a22;color:#e9e4ee;font-family:"IBM Plex Sans",sans-serif;}
+a{color:#ffb745;}a:hover{color:#ffd28a;}
+input::selection{background:#c73625;color:#f8f8f8;}
+</style>
+</helmet>
+
+<section data-screen-label="Main window" style="background:#1d1a22;padding:64px 72px 40px;display:flex;flex-direction:column;gap:24px;">
+  <div style="display:flex;flex-direction:column;gap:8px;max-width:1100px;">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.14em;color:#ffb745;">POKEROGUE ELECTRON · WRAPPER UI · FINAL</div>
+    <div style="font-size:34px;font-weight:600;">Main window — custom title bar</div>
+    <div style="font-size:15px;color:#b9b0c4;line-height:1.55;text-wrap:pretty;">Actual size, 1280 × 800. Everything is on a 2× pixel grid: Emerald Pro at 32px (1 font pixel = 2px), 4px strokes, 9-slice frames at 16px. Click the menus; hover rows to move the cursor. Tweaks: profile, cheats, update in progress.</div>
+  </div>
+  <div onClick="{{ closeMenus }}" style="width:1280px;box-shadow:0 30px 80px rgba(0,0,0,.55);outline:1px solid #000;font-family:Emerald,monospace;-webkit-font-smoothing:none;">
+    <div style="position:relative;z-index:5;height:48px;display:flex;align-items:stretch;background:#181818;box-shadow:inset 0 -4px 0 #c73625;">
+      <div style="width:56px;display:flex;align-items:center;justify-content:center;padding-bottom:4px;"><img src="assets/logo128.png" style="width:32px;height:32px;"></div>
+      <sc-for list="{{ menus }}" as="m" hint-placeholder-count="6">
+        <div style="position:relative;display:flex;">
+          <div onClick="{{ m.toggle }}" onMouseEnter="{{ m.slide }}" style="display:flex;align-items:center;padding:0 14px 4px;font-size:32px;line-height:1;color:#f8f8f8;cursor:pointer;background:{{ m.bg }};" style-hover="background:#362d3e;">{{ m.label }}</div>
+          <sc-if value="{{ m.open }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ stop }}" style="position:absolute;top:48px;left:0;min-width:{{ m.w }};border:16px solid transparent;border-image:url(assets/window_3.png) 8 fill / 16px stretch;image-rendering:pixelated;display:flex;flex-direction:column;box-shadow:8px 8px 0 rgba(0,0,0,.35);">
+              <sc-for list="{{ m.items }}" as="it" hint-placeholder-count="3">
+                <sc-if value="{{ it.sep }}"><div style="height:4px;background:#443c4c;margin:8px 4px;"></div></sc-if>
+                <sc-if value="{{ it.head }}"><div style="font-size:16px;line-height:1;color:#ffb745;padding:8px 8px 4px 36px;">{{ it.l }}</div></sc-if>
+                <sc-if value="{{ it.row }}">
+                  <div onMouseEnter="{{ it.enter }}" onClick="{{ closeMenus }}" style="display:grid;grid-template-columns:20px 1fr auto;gap:12px;align-items:center;padding:6px 12px 10px 8px;font-size:32px;line-height:1;color:#f8f8f8;cursor:pointer;background:{{ it.bg }};">
+                    <span style="display:flex;align-items:center;justify-content:center;height:20px;"><sc-if value="{{ it.hov }}"><img src="assets/cursor.png" style="width:12px;height:20px;image-rendering:pixelated;"></sc-if><sc-if value="{{ it.dot }}"><div style="width:12px;height:12px;background:#20b098;"></div></sc-if></span>
+                    <span>{{ it.l }}</span>
+                    <span style="font-size:16px;color:#a99db5;padding-left:16px;">{{ it.k }}</span>
+                  </div>
+                </sc-if>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+      <div style="flex:1;"></div>
+      <div style="display:flex;align-items:center;gap:8px;padding:0 12px 4px;">
+        <sc-if value="{{ updating }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:8px;padding:2px 10px 6px;box-shadow:inset 0 0 0 4px #20b098;cursor:pointer;">
+            <span style="font-size:32px;line-height:1;color:#f8f8f8;">0.1.5</span>
+            <div style="width:64px;height:16px;box-sizing:border-box;border:4px solid #d7d7d7;"><div style="width:62%;height:100%;background:#20b098;"></div></div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ nonDefault }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:2px 12px 6px;background:#362d3e;box-shadow:inset 0 0 0 4px #d7d7d7;font-size:32px;line-height:1;color:#f8f8f8;">{{ profile }}</div>
+        </sc-if>
+        <sc-if value="{{ cheatsOn }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:2px 12px 6px;background:#ffb745;color:#181818;font-size:32px;line-height:1;">CHEATS ON</div>
+        </sc-if>
+      </div>
+      <div style="display:flex;">
+        <div style="width:48px;display:flex;align-items:center;justify-content:center;padding-bottom:4px;cursor:pointer;" style-hover="background:#362d3e;"><div style="width:16px;height:4px;background:#d7d7d7;"></div></div>
+        <div style="width:48px;display:flex;align-items:center;justify-content:center;padding-bottom:4px;cursor:pointer;" style-hover="background:#362d3e;"><div style="width:16px;height:16px;box-sizing:border-box;border:4px solid #d7d7d7;"></div></div>
+        <div style="width:48px;display:flex;align-items:center;justify-content:center;padding-bottom:8px;cursor:pointer;font-size:32px;line-height:1;color:#d7d7d7;" style-hover="background:#c73625;color:#f8f8f8;">x</div>
+      </div>
+    </div>
+    <div style="position:relative;height:752px;background:#362d3e url(assets/bg.png) center top / cover no-repeat;image-rendering:pixelated;">
+      <div style="position:absolute;left:16px;bottom:16px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#d7d7d7;background:rgba(24,24,24,.85);padding:4px 8px;">game canvas · BrowserView fills remaining height</div>
+    </div>
+  </div>
+</section>
+
+<section data-screen-label="Title bar states" style="background:#1d1a22;padding:40px 72px;display:flex;flex-direction:column;gap:24px;">
+  <div style="font-size:24px;font-weight:600;">Title bar states</div>
+  <div style="font-size:14px;color:#b9b0c4;max-width:900px;line-height:1.55;">Right side shows only what differs from normal play: the profile chip when it isn't Default, CHEATS ON whenever cheats are enabled (in any profile), and the update chip while a download runs.</div>
+  <div style="display:flex;flex-direction:column;gap:20px;font-family:Emerald,monospace;-webkit-font-smoothing:none;">
+    <sc-for list="{{ barStates }}" as="b" hint-placeholder-count="4">
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">{{ b.cap }}</div>
+        <div style="width:960px;height:48px;display:flex;align-items:stretch;background:#181818;box-shadow:inset 0 -4px 0 #c73625;outline:1px solid #000;">
+          <div style="width:56px;display:flex;align-items:center;justify-content:center;padding-bottom:4px;"><img src="assets/logo128.png" style="width:32px;height:32px;"></div>
+          <sc-for list="{{ menuLabels }}" as="l" hint-placeholder-count="6"><div style="display:flex;align-items:center;padding:0 14px 4px;font-size:32px;line-height:1;color:#f8f8f8;">{{ l }}</div></sc-for>
+          <div style="flex:1;"></div>
+          <div style="display:flex;align-items:center;gap:8px;padding:0 12px 4px;">
+            <sc-if value="{{ b.upd }}"><div style="display:flex;align-items:center;gap:8px;padding:2px 10px 6px;box-shadow:inset 0 0 0 4px #20b098;"><span style="font-size:32px;line-height:1;color:#f8f8f8;">0.1.5</span><div style="width:64px;height:16px;box-sizing:border-box;border:4px solid #d7d7d7;"><div style="width:62%;height:100%;background:#20b098;"></div></div></div></sc-if>
+            <sc-if value="{{ b.chip }}"><div style="padding:2px 12px 6px;background:#362d3e;box-shadow:inset 0 0 0 4px #d7d7d7;font-size:32px;line-height:1;color:#f8f8f8;">{{ b.chip }}</div></sc-if>
+            <sc-if value="{{ b.cheats }}"><div style="padding:2px 12px 6px;background:#ffb745;color:#181818;font-size:32px;line-height:1;">CHEATS ON</div></sc-if>
+          </div>
+          <div style="display:flex;">
+            <div style="width:48px;display:flex;align-items:center;justify-content:center;padding-bottom:4px;"><div style="width:16px;height:4px;background:#d7d7d7;"></div></div>
+            <div style="width:48px;display:flex;align-items:center;justify-content:center;padding-bottom:4px;"><div style="width:16px;height:16px;box-sizing:border-box;border:4px solid #d7d7d7;"></div></div>
+            <div style="width:48px;display:flex;align-items:center;justify-content:center;padding-bottom:8px;font-size:32px;line-height:1;color:#d7d7d7;">x</div>
+          </div>
+        </div>
+      </div>
+    </sc-for>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">macOS · titleBarStyle "hidden", traffic lights inset · menus live in the system menu bar</div>
+      <div style="width:960px;height:48px;display:flex;align-items:center;gap:8px;padding:0 16px 4px 20px;box-sizing:border-box;background:#181818;box-shadow:inset 0 -4px 0 #c73625;border-radius:10px 10px 0 0;outline:1px solid #000;">
+        <div style="width:12px;height:12px;border-radius:50%;background:#ff5f57;"></div><div style="width:12px;height:12px;border-radius:50%;background:#febc2e;"></div><div style="width:12px;height:12px;border-radius:50%;background:#28c840;"></div>
+        <div style="flex:1;text-align:center;font-size:32px;line-height:1;color:#d7d7d7;">PokeRogue Electron</div>
+        <div style="padding:2px 12px 6px;background:#362d3e;box-shadow:inset 0 0 0 4px #d7d7d7;font-size:32px;line-height:1;color:#f8f8f8;">Cheats</div>
+        <div style="padding:2px 12px 6px;background:#ffb745;color:#181818;font-size:32px;line-height:1;">CHEATS ON</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section data-screen-label="Menus" style="background:#1d1a22;padding:40px 72px;display:flex;flex-direction:column;gap:24px;">
+  <div style="font-size:24px;font-weight:600;">Menus — full contents</div>
+  <div style="font-size:14px;color:#b9b0c4;max-width:900px;line-height:1.55;">Same items as menu.mjs, regrouped. Shortcuts shown are Windows; macOS uses ⌘ / ⌃⌘F / ⌥⌘I as today. Hover = darker row + game cursor; teal square = active profile.</div>
+  <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;font-family:Emerald,monospace;-webkit-font-smoothing:none;">
+    <sc-for list="{{ menuSheet }}" as="m" hint-placeholder-count="6">
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="align-self:flex-start;padding:6px 14px 10px;font-size:32px;line-height:1;color:#f8f8f8;background:#472d3c;">{{ m.label }}</div>
+        <div style="min-width:{{ m.w }};border:16px solid transparent;border-image:url(assets/window_3.png) 8 fill / 16px stretch;image-rendering:pixelated;display:flex;flex-direction:column;">
+          <sc-for list="{{ m.items }}" as="it" hint-placeholder-count="3">
+            <sc-if value="{{ it.sep }}"><div style="height:4px;background:#443c4c;margin:8px 4px;"></div></sc-if>
+            <sc-if value="{{ it.head }}"><div style="font-size:16px;line-height:1;color:#ffb745;padding:8px 8px 4px 36px;">{{ it.l }}</div></sc-if>
+            <sc-if value="{{ it.row }}">
+              <div style="display:grid;grid-template-columns:20px 1fr auto;gap:12px;align-items:center;padding:6px 12px 10px 8px;font-size:32px;line-height:1;color:#f8f8f8;background:{{ it.bg }};">
+                <span style="display:flex;align-items:center;justify-content:center;height:20px;"><sc-if value="{{ it.hov }}"><img src="assets/cursor.png" style="width:12px;height:20px;image-rendering:pixelated;"></sc-if><sc-if value="{{ it.dot }}"><div style="width:12px;height:12px;background:#20b098;"></div></sc-if></span>
+                <span>{{ it.l }}</span><span style="font-size:16px;color:#a99db5;padding-left:16px;">{{ it.k }}</span>
+              </div>
+            </sc-if>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</section>
+
+<section data-screen-label="Wrapper windows" style="background:#1d1a22;padding:40px 72px;display:flex;flex-direction:column;gap:24px;">
+  <div style="font-size:24px;font-weight:600;">Wrapper windows</div>
+  <div style="font-size:14px;color:#b9b0c4;max-width:900px;line-height:1.55;">Separate frameless BrowserWindows sharing the 48px pixel title bar. Cheats, Backups and New Profile are interactive.</div>
+  <div style="display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start;font-family:Emerald,monospace;-webkit-font-smoothing:none;">
+
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">CHEAT CONTROL CENTER · 800 × 900 (min 680 × 700)</div>
+      <div style="width:800px;background:#362d3e;box-shadow:0 30px 80px rgba(0,0,0,.55);outline:1px solid #000;">
+        <div style="height:48px;display:flex;align-items:stretch;background:#181818;box-shadow:inset 0 -4px 0 #c73625;"><span style="flex:1;display:flex;align-items:center;padding:0 0 4px 16px;font-size:32px;line-height:1;color:#d7d7d7;">Cheat Control Center</span><span style="width:48px;display:flex;align-items:center;justify-content:center;padding-bottom:8px;font-size:32px;line-height:1;color:#d7d7d7;cursor:pointer;" style-hover="background:#c73625;color:#f8f8f8;">x</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:24px 28px 8px;">
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div style="font-size:48px;line-height:1;color:#f8f8f8;">Cheat Control Center</div>
+            <div style="font-size:32px;line-height:1;color:#d7d7d7;">Backed up first. Applied after restart.</div>
+          </div>
+          <div style="flex:none;padding:2px 12px 6px;font-size:32px;line-height:1;background:{{ stateBg }};color:{{ stateFg }};box-shadow:inset 0 0 0 4px {{ stateBorder }};">{{ stateLabel }}</div>
+        </div>
+        <div style="padding:16px 20px 12px;display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;border:16px solid transparent;border-image:url(assets/window_1.png) 8 fill / 16px stretch;image-rendering:pixelated;padding:4px 8px;">
+            <div onClick="{{ toggleEnabled }}" style="display:flex;align-items:center;gap:16px;cursor:pointer;">
+              <div style="position:relative;width:64px;height:32px;box-sizing:border-box;border:4px solid #d7d7d7;background:{{ switchBg }};"><div style="position:absolute;top:4px;left:{{ knobLeft }};width:16px;height:16px;background:#f8f8f8;"></div></div>
+              <span style="font-size:32px;line-height:1;color:#f8f8f8;padding-bottom:4px;">Enable cheats</span>
+            </div>
+            <button onClick="{{ maxFun }}" style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#472d3c;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #2b2231;cursor:pointer;outline:none;" style-hover="background:#553848;" style-focus="box-shadow:inset 0 -4px 0 #2b2231,0 0 0 4px #ffb745;">Maximum Fun Preset</button>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;opacity:{{ sectionsOpacity }};">
+            <div style="border:16px solid transparent;border-image:url(assets/window_3.png) 8 fill / 16px stretch;image-rendering:pixelated;padding:4px 8px 8px;display:flex;flex-direction:column;gap:16px;">
+              <div style="font-size:32px;line-height:1;color:#ffb745;">Economy &amp; progression</div>
+              <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;">
+                <sc-for list="{{ econNums }}" as="n" hint-placeholder-count="3">
+                  <label style="display:flex;flex-direction:column;gap:8px;font-size:16px;line-height:1;color:#d7d7d7;">{{ n.l }}<input type="number" value="{{ n.v }}" onChange="{{ n.set }}" min="{{ n.min }}" max="{{ n.max }}" style="font-family:Emerald,monospace;font-size:32px;line-height:1;background:#181818;border:4px solid #d7d7d7;color:#f8f8f8;padding:4px 10px 8px;width:100%;box-sizing:border-box;outline:none;" style-focus="border-color:#ffb745;"></label>
+                </sc-for>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 20px;">
+                <sc-for list="{{ econChecks }}" as="c" hint-placeholder-count="5">
+                  <div onClick="{{ c.toggle }}" style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:32px;line-height:1;color:#f8f8f8;"><div style="flex:none;width:24px;height:24px;box-sizing:border-box;border:4px solid #d7d7d7;background:#181818;display:flex;align-items:center;justify-content:center;"><div style="width:8px;height:8px;background:{{ c.fill }};"></div></div><span style="padding-bottom:4px;">{{ c.l }}</span></div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="border:16px solid transparent;border-image:url(assets/window_3.png) 8 fill / 16px stretch;image-rendering:pixelated;padding:4px 8px 8px;display:flex;flex-direction:column;gap:16px;">
+              <div style="font-size:32px;line-height:1;color:#ffb745;">Minimum Poké Ball inventory</div>
+              <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;">
+                <sc-for list="{{ balls }}" as="n" hint-placeholder-count="5">
+                  <label style="display:flex;flex-direction:column;gap:8px;font-size:16px;line-height:1;color:#d7d7d7;">{{ n.l }}<input type="number" value="{{ n.v }}" onChange="{{ n.set }}" min="0" max="999" style="font-family:Emerald,monospace;font-size:32px;line-height:1;background:#181818;border:4px solid #d7d7d7;color:#f8f8f8;padding:4px 10px 8px;width:100%;box-sizing:border-box;outline:none;" style-focus="border-color:#ffb745;"></label>
+                </sc-for>
+              </div>
+            </div>
+            <div style="border:16px solid transparent;border-image:url(assets/window_3.png) 8 fill / 16px stretch;image-rendering:pixelated;padding:4px 8px 8px;display:flex;flex-direction:column;gap:16px;">
+              <div style="font-size:32px;line-height:1;color:#ffb745;">Battle &amp; Pokémon</div>
+              <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 20px;">
+                <sc-for list="{{ battleChecks }}" as="c" hint-placeholder-count="6">
+                  <div onClick="{{ c.toggle }}" style="display:flex;align-items:center;gap:12px;cursor:pointer;font-size:32px;line-height:1;color:#f8f8f8;"><div style="flex:none;width:24px;height:24px;box-sizing:border-box;border:4px solid #d7d7d7;background:#181818;display:flex;align-items:center;justify-content:center;"><div style="width:8px;height:8px;background:{{ c.fill }};"></div></div><span style="padding-bottom:4px;">{{ c.l }}</span></div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+          <div style="min-height:32px;font-size:32px;line-height:1;color:#ef7082;">{{ cheatMsg }}</div>
+        </div>
+        <div style="display:flex;gap:16px;align-items:center;padding:16px 24px 20px;background:#181818;box-shadow:inset 0 4px 0 #c73625;">
+          <button onClick="{{ resetVanilla }}" style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#ef7082;background:transparent;border:0;padding:4px 16px 12px;box-shadow:inset 0 0 0 4px #ef7082;cursor:pointer;outline:none;" style-hover="background:#2a1a1e;" style-focus="box-shadow:inset 0 0 0 4px #ef7082,0 0 0 4px #ffb745;">Reset to Vanilla</button>
+          <div style="flex:1;"></div>
+          <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#472d3c;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #2b2231;cursor:pointer;outline:none;" style-hover="background:#553848;" style-focus="box-shadow:inset 0 -4px 0 #2b2231,0 0 0 4px #ffb745;">Cancel</button>
+          <button onClick="{{ applyCheats }}" style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#c73625;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #8f2419;cursor:pointer;outline:none;" style-hover="background:#d8432f;" style-focus="box-shadow:inset 0 -4px 0 #8f2419,0 0 0 4px #ffb745;">Apply &amp; Restart</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:56px;">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">BACKUPS · 800 × 560 (min 680 × 440) · tweak “backupsEmpty” for empty state</div>
+        <div style="width:800px;height:560px;display:flex;flex-direction:column;background:#362d3e;box-shadow:0 30px 80px rgba(0,0,0,.55);outline:1px solid #000;">
+          <div style="height:48px;flex:none;display:flex;align-items:stretch;background:#181818;box-shadow:inset 0 -4px 0 #c73625;"><span style="flex:1;display:flex;align-items:center;padding:0 0 4px 16px;font-size:32px;line-height:1;color:#d7d7d7;">Backups</span><span style="width:48px;display:flex;align-items:center;justify-content:center;padding-bottom:8px;font-size:32px;line-height:1;color:#d7d7d7;cursor:pointer;" style-hover="background:#c73625;color:#f8f8f8;">x</span></div>
+          <div style="flex:1;min-height:0;padding:20px 20px 8px;display:flex;flex-direction:column;gap:8px;">
+            <div style="flex:1;min-height:0;border:16px solid transparent;border-image:url(assets/window_3.png) 8 fill / 16px stretch;image-rendering:pixelated;display:flex;flex-direction:column;">
+              <div style="display:grid;grid-template-columns:20px 1.3fr 1.3fr 140px;gap:12px;padding:0 8px 12px;font-size:16px;line-height:1;color:#ffb745;box-shadow:inset 0 -4px 0 #443c4c;"><span></span><span>CREATED</span><span>REASON</span><span>INTEGRITY</span></div>
+              <sc-if value="{{ hasBackups }}" hint-placeholder-val="{{ true }}">
+                <div style="flex:1;min-height:0;overflow:auto;padding-top:4px;">
+                  <sc-for list="{{ backups }}" as="b" hint-placeholder-count="5">
+                    <div onClick="{{ b.pick }}" style="display:grid;grid-template-columns:20px 1.3fr 1.3fr 140px;gap:12px;align-items:center;padding:6px 8px 10px;font-size:32px;line-height:1;color:#f8f8f8;cursor:pointer;background:{{ b.bg }};" style-hover="background:#472d3c;">
+                      <span style="display:flex;"><sc-if value="{{ b.sel }}"><img src="assets/cursor.png" style="width:12px;height:20px;image-rendering:pixelated;"></sc-if></span>
+                      <span>{{ b.d }}</span><span>{{ b.r }}</span><span style="color:{{ b.sc }};">{{ b.s }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <sc-if value="{{ noBackups }}" hint-placeholder-val="{{ false }}">
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;">
+                  <div style="font-size:32px;line-height:1;color:#f8f8f8;">No Backups yet.</div>
+                  <div style="font-size:32px;line-height:1;color:#a99db5;">Use Saves › Back Up Saves… to create one.</div>
+                </div>
+              </sc-if>
+            </div>
+            <div style="min-height:32px;font-size:32px;line-height:1;color:#ef7082;">{{ backupMsg }}</div>
+          </div>
+          <div style="display:flex;gap:16px;padding:16px 24px 20px;background:#181818;box-shadow:inset 0 4px 0 #c73625;">
+            <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#472d3c;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #2b2231;cursor:pointer;outline:none;" style-hover="background:#553848;" style-focus="box-shadow:inset 0 -4px 0 #2b2231,0 0 0 4px #ffb745;">Choose Folder…</button>
+            <div style="flex:1;"></div>
+            <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#472d3c;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #2b2231;cursor:pointer;outline:none;" style-hover="background:#553848;" style-focus="box-shadow:inset 0 -4px 0 #2b2231,0 0 0 4px #ffb745;">Close</button>
+            <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:{{ restoreFg }};background:{{ restoreBg }};border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 {{ restoreShadow }};cursor:{{ restoreCursor }};outline:none;">Restore</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:56px;flex-wrap:wrap;align-items:flex-start;">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">NEW PROFILE · 480 × 360, not resizable</div>
+          <div style="width:480px;height:360px;display:flex;flex-direction:column;background:#362d3e;box-shadow:0 30px 80px rgba(0,0,0,.55);outline:1px solid #000;">
+            <div style="height:48px;flex:none;display:flex;align-items:stretch;background:#181818;box-shadow:inset 0 -4px 0 #c73625;"><span style="flex:1;display:flex;align-items:center;padding:0 0 4px 16px;font-size:32px;line-height:1;color:#d7d7d7;">New Profile</span><span style="width:48px;display:flex;align-items:center;justify-content:center;padding-bottom:8px;font-size:32px;line-height:1;color:#d7d7d7;cursor:pointer;" style-hover="background:#c73625;color:#f8f8f8;">x</span></div>
+            <div style="flex:1;padding:20px 24px 20px;display:flex;flex-direction:column;gap:8px;">
+              <label style="font-size:32px;line-height:1;color:#d7d7d7;">Profile name</label>
+              <input value="{{ profName }}" onChange="{{ setProfName }}" placeholder="e.g. Nuzlocke" style="font-family:Emerald,monospace;font-size:32px;line-height:1;background:#181818;border:4px solid {{ profBorder }};color:#f8f8f8;padding:4px 10px 8px;width:100%;box-sizing:border-box;outline:none;caret-color:#ffb745;">
+              <div style="font-size:{{ profHintSize }};line-height:1.1;color:{{ profHintColor }};text-wrap:pretty;">{{ profHint }}</div>
+              <div style="flex:1;"></div>
+              <div style="display:flex;justify-content:flex-end;gap:16px;">
+                <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#472d3c;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #2b2231;cursor:pointer;outline:none;" style-hover="background:#553848;">Cancel</button>
+                <button onClick="{{ createProfile }}" style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#c73625;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #8f2419;cursor:pointer;outline:none;" style-hover="background:#d8432f;">Create and Restart</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">UPDATE PROGRESS · 560 wide · opened from the 0.1.5 chip</div>
+          <div style="width:560px;background:#362d3e;box-shadow:0 30px 80px rgba(0,0,0,.55);outline:1px solid #000;">
+            <div style="height:48px;display:flex;align-items:stretch;background:#181818;box-shadow:inset 0 -4px 0 #20b098;"><span style="flex:1;display:flex;align-items:center;padding:0 0 4px 16px;font-size:32px;line-height:1;color:#d7d7d7;">Updating to 0.1.5</span><span style="width:48px;display:flex;align-items:center;justify-content:center;padding-bottom:8px;font-size:32px;line-height:1;color:#d7d7d7;">x</span></div>
+            <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px;">
+              <sc-for list="{{ updSteps }}" as="s" hint-placeholder-count="4">
+                <div style="display:grid;grid-template-columns:20px 1fr auto;gap:12px;align-items:center;font-size:32px;line-height:1;color:{{ s.c }};">
+                  <span style="display:flex;"><sc-if value="{{ s.cur }}"><img src="assets/cursor.png" style="width:12px;height:20px;image-rendering:pixelated;"></sc-if><sc-if value="{{ s.done }}"><div style="width:12px;height:12px;background:#20b098;"></div></sc-if></span>
+                  <span style="padding-bottom:4px;">{{ s.l }}</span><span style="font-size:16px;">{{ s.r }}</span>
+                </div>
+              </sc-for>
+              <div style="height:32px;box-sizing:border-box;border:4px solid #d7d7d7;background:#181818;padding:4px;display:flex;gap:4px;margin-top:4px;">
+                <sc-for list="{{ segs }}" as="g" hint-placeholder-count="20"><div style="flex:1;background:{{ g }};"></div></sc-for>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                <span style="font-size:16px;line-height:1;color:#a99db5;">Gameplay keeps running while this downloads.</span>
+                <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#472d3c;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #2b2231;cursor:pointer;outline:none;" style-hover="background:#553848;">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section data-screen-label="Dialogs" style="background:#1d1a22;padding:40px 72px;display:flex;flex-direction:column;gap:24px;">
+  <div style="font-size:24px;font-weight:600;">Confirmation dialogs</div>
+  <div style="font-size:14px;color:#b9b0c4;max-width:900px;line-height:1.55;">One modal window type replaces every dialog.showMessageBox call. The title-bar stripe color follows the Electron <span style="font-family:'IBM Plex Mono',monospace;">type</span>: info teal, warning amber, question gray, error red. The yellow focus ring marks defaultId; Enter fires it, Esc fires cancelId.</div>
+  <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start;font-family:Emerald,monospace;-webkit-font-smoothing:none;">
+    <sc-for list="{{ dialogs }}" as="d" hint-placeholder-count="4">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">{{ d.meta }}</div>
+        <div style="width:560px;background:#362d3e;box-shadow:0 30px 80px rgba(0,0,0,.55);outline:1px solid #000;">
+          <div style="height:48px;display:flex;align-items:stretch;background:#181818;box-shadow:inset 0 -4px 0 {{ d.accent }};"><span style="flex:1;display:flex;align-items:center;padding:0 0 4px 16px;font-size:32px;line-height:1;color:#d7d7d7;">{{ d.title }}</span></div>
+          <div style="padding:20px;display:flex;flex-direction:column;gap:20px;">
+            <div style="border:16px solid transparent;border-image:url(assets/window_3.png) 8 fill / 16px stretch;image-rendering:pixelated;display:flex;flex-direction:column;gap:12px;padding:0 8px 8px;">
+              <div style="font-size:32px;line-height:1.05;color:#f8f8f8;text-wrap:pretty;">{{ d.msg }}</div>
+              <div style="font-size:32px;line-height:1.05;color:#c9bfd3;text-wrap:pretty;white-space:pre-line;">{{ d.detail }}</div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:16px;">
+              <sc-if value="{{ d.cancel }}"><button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#472d3c;border:0;padding:4px 20px 12px;box-shadow:{{ d.cancelShadow }};cursor:pointer;outline:none;">{{ d.cancel }}</button></sc-if>
+              <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:{{ d.okBg }};border:0;padding:4px 20px 12px;box-shadow:{{ d.okShadow }};cursor:pointer;outline:none;">{{ d.ok }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</section>
+
+<section data-screen-label="Type charts" style="background:#1d1a22;padding:40px 72px;display:flex;flex-direction:column;gap:24px;">
+  <div style="font-size:24px;font-weight:600;">Type chart windows</div>
+  <div style="font-size:14px;color:#b9b0c4;max-width:900px;line-height:1.55;">Shown at 50%. Real windows are 670 × 1000 and 1300 × 600 for the image, plus the 48px title bar. The shortcut that toggles each window appears in the bar.</div>
+  <div style="display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap;font-family:Emerald,monospace;-webkit-font-smoothing:none;">
+    <div style="width:335px;background:#181818;box-shadow:0 30px 80px rgba(0,0,0,.55);outline:1px solid #000;">
+      <div style="height:24px;display:flex;align-items:center;box-shadow:inset 0 -2px 0 #c73625;"><span style="flex:1;padding:0 0 2px 8px;font-size:16px;line-height:1;color:#d7d7d7;">Type Chart</span><span style="font-size:16px;line-height:1;color:#8d8499;padding:0 8px 2px;">Ctrl+Shift+Y</span></div>
+      <img src="assets/type-chart.png" style="display:block;width:335px;height:500px;object-fit:contain;background:#fff;">
+    </div>
+    <div style="width:650px;background:#181818;box-shadow:0 30px 80px rgba(0,0,0,.55);outline:1px solid #000;">
+      <div style="height:24px;display:flex;align-items:center;box-shadow:inset 0 -2px 0 #c73625;"><span style="flex:1;padding:0 0 2px 8px;font-size:16px;line-height:1;color:#d7d7d7;">Horizontal Type Chart</span><span style="font-size:16px;line-height:1;color:#8d8499;padding:0 8px 2px;">Ctrl+Shift+H</span></div>
+      <img src="assets/type-chart-2.png" style="display:block;width:650px;height:300px;object-fit:contain;background:#fff;">
+    </div>
+  </div>
+</section>
+
+<section data-screen-label="Components and tokens" style="background:#1d1a22;padding:40px 72px 96px;display:flex;flex-direction:column;gap:32px;">
+  <div style="font-size:24px;font-weight:600;">Components &amp; tokens</div>
+  <div style="display:flex;flex-wrap:wrap;gap:16px;">
+    <sc-for list="{{ swatches }}" as="c" hint-placeholder-count="10">
+      <div style="width:150px;display:flex;flex-direction:column;gap:6px;">
+        <div style="height:56px;background:{{ c.hex }};outline:1px solid #3a3442;"></div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#e9e4ee;">{{ c.hex }}</div>
+        <div style="font-size:12px;color:#8d8499;line-height:1.4;">{{ c.use }}</div>
+      </div>
+    </sc-for>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start;font-family:Emerald,monospace;-webkit-font-smoothing:none;">
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">TYPE · Emerald Pro, only 16 / 32 / 48px</div>
+      <div style="font-size:48px;line-height:1;color:#f8f8f8;">48 · Window heading</div>
+      <div style="font-size:32px;line-height:1;color:#f8f8f8;">32 · Body, menus, buttons, inputs</div>
+      <div style="font-size:16px;line-height:1;color:#a99db5;">16 · Shortcuts, field labels, column heads, hints</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">BUTTONS · default / hover / focus / disabled</div>
+      <div style="display:flex;gap:16px;">
+        <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#c73625;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #8f2419;">Primary</button>
+        <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#d8432f;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #8f2419;">Hover</button>
+        <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#c73625;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #8f2419,0 0 0 4px #ffb745;">Focus</button>
+        <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#8d8499;background:#443c4c;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #2b2231;">Disabled</button>
+      </div>
+      <div style="display:flex;gap:16px;">
+        <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#f8f8f8;background:#472d3c;border:0;padding:4px 20px 12px;box-shadow:inset 0 -4px 0 #2b2231;">Secondary</button>
+        <button style="font-family:Emerald,monospace;font-size:32px;line-height:1;color:#ef7082;background:transparent;border:0;padding:4px 16px 12px;box-shadow:inset 0 0 0 4px #ef7082;">Destructive</button>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;width:300px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">INPUTS · default / focus / error</div>
+      <div style="font-family:Emerald,monospace;font-size:32px;line-height:1;background:#181818;border:4px solid #d7d7d7;color:#f8f8f8;padding:4px 10px 8px;">1000000</div>
+      <div style="font-family:Emerald,monospace;font-size:32px;line-height:1;background:#181818;border:4px solid #ffb745;color:#f8f8f8;padding:4px 10px 8px;">Nuzlocke</div>
+      <div style="font-family:Emerald,monospace;font-size:32px;line-height:1;background:#181818;border:4px solid #ef7082;color:#f8f8f8;padding:4px 10px 8px;">Default</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">CONTROLS</div>
+      <div style="display:flex;gap:16px;align-items:center;">
+        <div style="width:24px;height:24px;box-sizing:border-box;border:4px solid #d7d7d7;background:#181818;"></div>
+        <div style="width:24px;height:24px;box-sizing:border-box;border:4px solid #d7d7d7;background:#181818;display:flex;align-items:center;justify-content:center;"><div style="width:8px;height:8px;background:#20b098;"></div></div>
+        <div style="position:relative;width:64px;height:32px;box-sizing:border-box;border:4px solid #d7d7d7;background:#181818;"><div style="position:absolute;top:4px;left:4px;width:16px;height:16px;background:#f8f8f8;"></div></div>
+        <div style="position:relative;width:64px;height:32px;box-sizing:border-box;border:4px solid #d7d7d7;background:#20b098;"><div style="position:absolute;top:4px;left:36px;width:16px;height:16px;background:#f8f8f8;"></div></div>
+        <img src="assets/cursor.png" style="width:12px;height:20px;image-rendering:pixelated;">
+      </div>
+      <div style="display:flex;gap:8px;">
+        <div style="padding:2px 12px 6px;background:#362d3e;box-shadow:inset 0 0 0 4px #d7d7d7;font-size:32px;line-height:1;color:#f8f8f8;">Profile</div>
+        <div style="padding:2px 12px 6px;background:#ffb745;color:#181818;font-size:32px;line-height:1;">CHEATS ON</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8499;">FRAMES · 9-slice, slice 8, width 16px</div>
+      <div style="display:flex;gap:16px;">
+        <div style="width:160px;height:96px;box-sizing:border-box;border:16px solid transparent;border-image:url(assets/window_1.png) 8 fill / 16px stretch;image-rendering:pixelated;font-size:16px;color:#d7d7d7;">window_1 · hero</div>
+        <div style="width:160px;height:96px;box-sizing:border-box;border:16px solid transparent;border-image:url(assets/window_3.png) 8 fill / 16px stretch;image-rendering:pixelated;font-size:16px;color:#d7d7d7;">window_3 · groups, menus</div>
+      </div>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;profile&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Default&quot;,&quot;Cheats&quot;,&quot;Nuzlocke&quot;],&quot;default&quot;:&quot;Cheats&quot;,&quot;tsType&quot;:&quot;'Default'|'Cheats'|'Nuzlocke'&quot;,&quot;section&quot;:&quot;Title bar&quot;},&quot;cheatsOn&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Title bar&quot;},&quot;updating&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Title bar&quot;},&quot;backupsEmpty&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Windows&quot;}}">
+const NEUTRAL = { minimumMoney: 0, xpMultiplier: 1, extraCandy: 0, balls: { poke: 0, great: 0, ultra: 0, rogue: 0, master: 0 } };
+const MAXFUN = { minimumMoney: 1000000, xpMultiplier: 10, extraCandy: 10, balls: { poke: 99, great: 99, ultra: 99, rogue: 99, master: 10 } };
+const ECON = [["disableLevelCap", "Disable level cap"], ["freeShopPurchases", "Free shop purchases"], ["freeRerolls", "Free rerolls"], ["freeGacha", "Free Gacha pulls"], ["instantEggHatch", "Instant egg hatching"]];
+const BATTLE = [["forceRetries", "Force battle retries"], ["guaranteedEscape", "Guaranteed escape"], ["perfectIvs", "Perfect player IVs"], ["playerShiny", "Guaranteed player shinies"], ["enemyShiny", "Guaranteed enemy shinies"], ["guaranteedCriticals", "Guaranteed critical hits"]];
+const BALLS = [["poke", "Poké"], ["great", "Great"], ["ultra", "Ultra"], ["rogue", "Rogue"], ["master", "Master"]];
+const BACKUPS = [
+  { d: "Oct 7, 9:14 PM", r: "Manual", s: "Verified" },
+  { d: "Oct 6, 6:41 PM", r: "Before cheat change", s: "Verified" },
+  { d: "Oct 2, 11:03 AM", r: "Before Update", s: "Verified" },
+  { d: "Sep 28, 8:20 PM", r: "Before Restore", s: "Failed", err: "Checksum mismatch in save data." },
+  { d: "Sep 21, 4:02 PM", r: "Manual", s: "Checking…" },
+];
+const STATUS_C = { Verified: "#20b098", Failed: "#ef7082", "Checking…": "#a99db5" };
+const NAME_RE = /^[A-Za-z0-9](?:[A-Za-z0-9 _-]{0,30}[A-Za-z0-9])?$/;
+const RESERVED = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+const EXISTING = ["cheats", "nuzlocke"];
+
+function menuData(profile) {
+  const r = (l, k = "", dot = false) => ({ row: true, l, k, dot });
+  const sep = { sep: true };
+  const head = l => ({ head: true, l });
+  return [
+    { label: "Game", w: "360px", items: [r("Check for Updates…"), sep, r("Copy Diagnostic Report"), sep, r("Quit", "Alt+F4")] },
+    { label: "Saves", w: "320px", items: [r("Back Up Saves…"), r("Restore Backup…"), sep, r("Open Save Folder")] },
+    { label: "View", w: "380px", items: [r("Reload", "Ctrl+R"), r("Toggle Full Screen", "F11"), r("Developer Tools", "F12")] },
+    { label: "Tools", w: "460px", items: [head("OPENS IN BROWSER"), r("Wiki", "Ctrl+Shift+W"), r("Pokédex", "Ctrl+Shift+D"), r("SearchDex", "Ctrl+Shift+E"), r("Type Calculator", "Ctrl+Shift+T"), r("Team Builder", "Ctrl+Shift+B"), r("Smogon", "Ctrl+Shift+S"), sep, head("OFFLINE"), r("Type Chart", "Ctrl+Shift+Y"), r("Horizontal Type Chart", "Ctrl+Shift+H"), sep, head("KEYBINDINGS"), r("Open Keybindings File…"), r("Reload Keybindings"), r("Reset to Defaults")] },
+    { label: "Cheats", w: "320px", items: [r("Configure Cheats…")] },
+    { label: "Profiles", w: "300px", items: [r("Default", "", profile === "Default"), r("Cheats", "", profile === "Cheats"), r("Nuzlocke", "", profile === "Nuzlocke"), sep, r("New Profile…")] },
+  ];
+}
+
+class Component extends DCLogic {
+  state = {
+    open: null, hover: null, enabled: true,
+    checks: { disableLevelCap: true, freeShopPurchases: true, freeRerolls: false, freeGacha: true, instantEggHatch: false, forceRetries: false, guaranteedEscape: true, perfectIvs: true, playerShiny: true, enemyShiny: false, guaranteedCriticals: false },
+    nums: { minimumMoney: 1000000, xpMultiplier: 5, extraCandy: 3 },
+    balls: { poke: 20, great: 10, ultra: 5, rogue: 2, master: 1 },
+    cheatMsg: "", sel: 1, profName: "Nuzlocke", profErr: "",
+  };
+  componentDidMount() {
+    this._key = e => { if (e.key === "Escape") this.setState({ open: null }); };
+    window.addEventListener("keydown", this._key);
+  }
+  componentWillUnmount() { window.removeEventListener("keydown", this._key); }
+  renderVals() {
+    const s = this.state;
+    const profile = this.props.profile ?? "Cheats";
+    const cheatsOn = this.props.cheatsOn ?? true;
+    const updating = this.props.updating ?? false;
+    const empty = this.props.backupsEmpty ?? false;
+    const decorate = (m, live) => ({
+      ...m,
+      items: m.items.map((it, i) => {
+        if (!it.row) return it;
+        const key = `${m.label}:${i}`;
+        const hov = live ? s.hover === key : key === "Tools:1";
+        return { ...it, hov, dot: it.dot && !hov, bg: hov ? "#472d3c" : "transparent", enter: () => this.setState({ hover: key }) };
+      }),
+    });
+    const menus = menuData(profile).map(m => {
+      const open = s.open === m.label;
+      return {
+        ...decorate(m, true), open, bg: open ? "#472d3c" : "transparent",
+        toggle: e => { e.stopPropagation(); this.setState({ open: open ? null : m.label, hover: null }); },
+        slide: () => { if (s.open && s.open !== m.label) this.setState({ open: m.label, hover: null }); },
+      };
+    });
+    const chk = list => list.map(([id, l]) => ({ l, fill: s.checks[id] ? "#20b098" : "transparent", toggle: () => this.setState(st => ({ checks: { ...st.checks, [id]: !st.checks[id] }, cheatMsg: "" })) }));
+    const selB = BACKUPS[s.sel];
+    const canRestore = !empty && selB.s === "Verified";
+    const nameErr = s.profErr;
+    const pct = 62;
+    const focus = ",0 0 0 4px #ffb745";
+    const dlg = (meta, type, title, msg, detail, ok, cancel, def) => {
+      const accent = { info: "#20b098", warning: "#ffb745", question: "#d7d7d7", error: "#c73625" }[type];
+      return { meta, title, msg, detail, ok, cancel, accent, okBg: "#c73625",
+        okShadow: "inset 0 -4px 0 #8f2419" + (def === 0 ? focus : ""), cancelShadow: "inset 0 -4px 0 #2b2231" + (def === 1 ? focus : "") };
+    };
+    return {
+      profile, nonDefault: profile !== "Default", cheatsOn, updating,
+      stop: e => e.stopPropagation(),
+      closeMenus: () => { if (s.open) this.setState({ open: null, hover: null }); },
+      menus,
+      menuLabels: menuData(profile).map(m => m.label),
+      menuSheet: menuData(profile).map(m => decorate(m, false)),
+      barStates: [
+        { cap: "Default profile · cheats off — nothing on the right", chip: "", cheats: false, upd: false },
+        { cap: "Named profile · cheats off", chip: "Nuzlocke", cheats: false, upd: false },
+        { cap: "Cheats profile · cheats on", chip: "Cheats", cheats: true, upd: false },
+        { cap: "Update downloading (click chip → progress window)", chip: "", cheats: false, upd: true },
+      ],
+      stateLabel: s.enabled ? "CHEATS ACTIVE" : "VANILLA",
+      stateBg: s.enabled ? "#ffb745" : "transparent", stateFg: s.enabled ? "#181818" : "#d7d7d7", stateBorder: s.enabled ? "#ffb745" : "#d7d7d7",
+      switchBg: s.enabled ? "#20b098" : "#181818", knobLeft: s.enabled ? "36px" : "4px",
+      sectionsOpacity: s.enabled ? 1 : 0.55,
+      toggleEnabled: () => this.setState({ enabled: !s.enabled, cheatMsg: "" }),
+      maxFun: () => this.setState({ enabled: true, checks: Object.fromEntries(Object.keys(s.checks).map(k => [k, true])), nums: { minimumMoney: MAXFUN.minimumMoney, xpMultiplier: MAXFUN.xpMultiplier, extraCandy: MAXFUN.extraCandy }, balls: { ...MAXFUN.balls }, cheatMsg: "" }),
+      resetVanilla: () => this.setState({ enabled: false, checks: Object.fromEntries(Object.keys(s.checks).map(k => [k, false])), nums: { minimumMoney: 0, xpMultiplier: 1, extraCandy: 0 }, balls: { ...NEUTRAL.balls }, cheatMsg: "" }),
+      applyCheats: () => this.setState({ cheatMsg: "No changes were applied." }),
+      cheatMsg: s.cheatMsg,
+      econNums: [["minimumMoney", "MINIMUM MONEY", 0, 999999999], ["xpMultiplier", "XP MULTIPLIER", 1, 100], ["extraCandy", "EXTRA CANDY / FRIENDSHIP", 0, 100]].map(([id, l, min, max]) => ({ l, min, max, v: s.nums[id], set: e => { const v = e.target.value; this.setState(st => ({ nums: { ...st.nums, [id]: v } })); } })),
+      balls: BALLS.map(([id, l]) => ({ l: l.toUpperCase(), v: s.balls[id], set: e => { const v = e.target.value; this.setState(st => ({ balls: { ...st.balls, [id]: v } })); } })),
+      econChecks: chk(ECON), battleChecks: chk(BATTLE),
+      hasBackups: !empty, noBackups: empty,
+      backups: BACKUPS.map((b, i) => ({ ...b, sel: i === s.sel, bg: i === s.sel ? "#472d3c" : "transparent", sc: STATUS_C[b.s], pick: () => this.setState({ sel: i }) })),
+      backupMsg: !empty && selB.s === "Failed" ? selB.err + " Choose another Backup." : "",
+      restoreBg: canRestore ? "#c73625" : "#443c4c", restoreFg: canRestore ? "#f8f8f8" : "#8d8499",
+      restoreShadow: canRestore ? "#8f2419" : "#2b2231", restoreCursor: canRestore ? "pointer" : "default",
+      profName: s.profName,
+      setProfName: e => this.setState({ profName: e.target.value, profErr: "" }),
+      createProfile: () => {
+        const n = s.profName;
+        let err = "";
+        if (!NAME_RE.test(n)) err = "Use 1–32 letters, digits, spaces, hyphens or underscores, starting and ending with a letter or digit.";
+        else if (n.toLowerCase() === "default" || RESERVED.test(n)) err = "That name is reserved.";
+        else if (EXISTING.includes(n.toLowerCase())) err = "A profile with that name already exists.";
+        this.setState({ profErr: err });
+      },
+      profBorder: nameErr ? "#ef7082" : "#ffb745",
+      profHint: nameErr || "Gets its own saves, cheats and Backups. The app restarts.",
+      profHintColor: nameErr ? "#ef7082" : "#a99db5",
+      profHintSize: nameErr ? "32px" : "16px",
+      updSteps: [
+        { l: "Download installer", r: `${pct}% · 58 / 94 MB`, c: "#f8f8f8", cur: true, done: false },
+        { l: "Verify size + SHA-256", r: "", c: "#a99db5", cur: false, done: false },
+        { l: "Back up saves (restart)", r: "", c: "#a99db5", cur: false, done: false },
+        { l: "Open installer", r: "", c: "#a99db5", cur: false, done: false },
+      ],
+      segs: Array.from({ length: 20 }, (_, i) => (i < Math.round(pct / 5) ? "#20b098" : "transparent")),
+      dialogs: [
+        dlg("warning · defaultId 0", "warning", "Restart to back up saves", "PokeRogue Electron must close briefly to make a consistent Backup.", "Choose Restart to create the Backup, or Cancel to keep playing.", "Restart and Back Up", "Cancel", 0),
+        dlg("info · defaultId 0", "info", "Update available", "Version 0.1.5 is available.", "Downloading requires a restart to make the cold Backup before the installer can be opened. Continue?", "Download and Restart", "Cancel", 0),
+        dlg("question · defaultId 1 (Cancel)", "question", "Switch profile", "Switch to \"Nuzlocke\"?", "PokeRogue Electron will restart. Each profile has its own Save data, cheat settings and Backups.", "Switch and Restart", "Cancel", 1),
+        dlg("warning · defaultId 1 · cheat-main.mjs", "warning", "Shared save warning", "Apply cheats to shared saves?", "A verified timestamped backup will be created before this change. Progress earned while cheats were active will remain in your saves.", "Back Up and Restart", "Cancel", 1),
+        dlg("question · defaultId 1 · list detail", "question", "Remove old installers?", "Move 2 installers you no longer need to the Recycle Bin?", "PokeRogue-Offline-0.1.3-windows-x64.exe\nPokeRogue-Offline-0.1.4-windows-x64.exe\n\nThey are in your Downloads folder. This version is already installed.", "Move to Recycle Bin", "Keep", 1),
+        dlg("error · single button", "error", "Profile switch failed", "Profile switch failed", "(error.message from switchProfile)", "OK", "", 0),
+      ],
+      swatches: [
+        { hex: "#181818", use: "Ink: title bars, footers, inputs" },
+        { hex: "#362d3e", use: "Window background, frame fill" },
+        { hex: "#472d3c", use: "Hover/selected rows, secondary button" },
+        { hex: "#443c4c", use: "Dividers, disabled button" },
+        { hex: "#c73625", use: "Primary button, title-bar stripe" },
+        { hex: "#ef7082", use: "Errors, destructive outline" },
+        { hex: "#20b098", use: "On/verified/progress" },
+        { hex: "#ffb745", use: "Cheats badge, focus ring, section heads" },
+        { hex: "#d7d7d7", use: "Strokes, muted text" },
+        { hex: "#f8f8f8", use: "Primary text" },
+        { hex: "#a99db5", use: "Meta text, shortcuts" },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

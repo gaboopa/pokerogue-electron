@@ -19,6 +19,7 @@ async function createHarness() {
   const loader = join(root, "loader.mjs");
   const bootstrap = join(root, "bootstrap.mjs");
   const electron = join(root, "electron.mjs");
+  const themedDialog = join(root, "themed-dialog.mjs");
   const backup = join(root, "backup.mjs");
   const coordinator = join(root, "coordinator.mjs");
   const updater = join(root, "updater.mjs");
@@ -27,6 +28,7 @@ async function createHarness() {
   const runner = join(root, "runner.mjs");
   await writeFile(loader, `export async function resolve(specifier, context, nextResolve) {
     if (specifier === "electron") return { url: new URL("./electron.mjs", import.meta.url).href, shortCircuit: true };
+    if (specifier === "./dialog-main.mjs") return { url: new URL("./themed-dialog.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./backup.mjs") return { url: new URL("./backup.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./backup-coordinator.mjs") return { url: new URL("./coordinator.mjs", import.meta.url).href, shortCircuit: true };
     if (context.parentURL === process.env.R06_MAIN_URL && specifier === "./updater.mjs") return { url: new URL("./updater.mjs", import.meta.url).href, shortCircuit: true };
@@ -35,34 +37,43 @@ async function createHarness() {
     return nextResolve(specifier, context);
   }`);
   await writeFile(bootstrap, `import { register } from "node:module"; register(${JSON.stringify(pathToFileURL(loader).href)});`);
+  await writeFile(themedDialog, `export async function showThemedMessageBox(parent, options) { const state = globalThis.__r06; state.dialogs.push({ title: options.title, message: options.message, buttons: options.buttons }); state.dialogParents.push(parent?.role ?? "destroyed"); return { response: state.dialogResponses.shift() ?? options.cancelId ?? options.defaultId ?? 0 }; }`);
   await writeFile(electron, `let resolveStartup;
     let rejectStartup;
     let stateResolveKeymapStarted;
     let stateReleaseKeymap;
-    const state = { listeners: {}, onceListeners: {}, instances: [], menu: [], dialogs: [], dialogParents: [], opened: [], events: [], relaunchSnapshots: [], quitSnapshots: [], flushes: 0, backups: 0, quits: 0, relaunches: 0, relaunchArgs: null, unhandled: [], dialogResponses: JSON.parse(process.env.R06_DIALOG_RESPONSES || "[]"), startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), keymapStarted: new Promise(resolve => { stateResolveKeymapStarted = resolve; }), keymapGate: new Promise(resolve => { stateReleaseKeymap = resolve; }) };
+    const state = { listeners: {}, onceListeners: {}, instances: [], views: [], menu: [], dialogs: [], dialogParents: [], opened: [], events: [], relaunchSnapshots: [], quitSnapshots: [], flushes: 0, backups: 0, quits: 0, relaunches: 0, relaunchArgs: null, unhandled: [], dialogResponses: JSON.parse(process.env.R06_DIALOG_RESPONSES || "[]"), startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), keymapStarted: new Promise(resolve => { stateResolveKeymapStarted = resolve; }), keymapGate: new Promise(resolve => { stateReleaseKeymap = resolve; }) };
     state.releaseKeymap = () => stateReleaseKeymap();
     state.signalKeymapStarted = () => stateResolveKeymapStarted();
     state.fireApp = (name, event = {}) => { const once = state.onceListeners[name] ?? []; delete state.onceListeners[name]; for (const callback of once) callback(event); const listener = state.listeners[name]; if (typeof listener === "function") listener(event); };
     process.on("unhandledRejection", error => state.unhandled.push(error.message));
     globalThis.__r06 = state;
     function makeEventMap() { return new Map(); }
+    let nextContentsId = 1;
     class Contents {
-      constructor(owner) { this.owner = owner; this.handlers = makeEventMap(); this.id = owner.id; this.session = { flushStorageData: async () => { state.flushes++; } }; }
+      constructor(owner) { this.owner = owner; this.handlers = makeEventMap(); this.id = nextContentsId++; this.session = { flushStorageData: async () => { state.flushes++; } }; }
       setWindowOpenHandler(handler) { this.windowOpenHandler = handler; }
       on(name, callback) { const all = this.handlers.get(name) ?? []; all.push(callback); this.handlers.set(name, all); }
       emit(name, ...args) { for (const callback of this.handlers.get(name) ?? []) callback(...args); }
-      send() { this.owner.sent++; }
-      toggleDevTools() { this.owner.devtools++; }
+      send(channel) { if (channel === "keybindings:update" && this.owner.role === "game-view") { this.owner.sent++; if (this.owner.host) this.owner.host.sent++; } }
+      toggleDevTools() { this.owner.devtools++; if (this.owner.role === "game-view" && this.owner.host) this.owner.host.devtools++; }
+      isDestroyed() { return this.owner.destroyed === true; }
+      focus() { this.owner.focuses++; }
+      reload() { this.owner.reloads++; if (this.owner.role === "game-view" && this.owner.host) this.owner.host.reloads++; }
+      async loadURL(url) { this.owner.url = url; state.urls ??= []; state.urls.push(url); if (state.rejectLoadFor === (this.owner.host?.id ?? this.owner.id)) return new Promise((resolve, reject) => { state.rejectLoad = reject; }); }
+      async loadFile(path) { this.owner.file = path; }
     }
     export class BrowserWindow {
-      constructor(options) { this.id = state.instances.length + 1; this.options = options; this.role = options.title === "Backups" ? "backups" : options.width === 1280 ? "game" : options.width === 760 ? "editor" : "chart"; this.destroyed = false; this.visible = false; this.handlers = makeEventMap(); this.onceHandlers = makeEventMap(); this.webContents = new Contents(this); this.reloads = 0; this.shows = 0; this.hides = 0; this.focuses = 0; this.fullscreen = false; this.sent = 0; this.devtools = 0; state.instances.push(this); state.events.push("window:" + this.role); }
+      constructor(options) { this.id = state.instances.length + 1; this.options = options; this.role = options.title === "Backups" ? "backups" : options.width === 1280 ? "game" : options.width === 800 ? "editor" : "chart"; this.destroyed = false; this.visible = false; this.handlers = makeEventMap(); this.onceHandlers = makeEventMap(); this.webContents = new Contents(this); this.reloads = 0; this.shows = 0; this.hides = 0; this.focuses = 0; this.fullscreen = false; this.maximized = false; this.sent = 0; this.devtools = 0; this.childViews = []; this.contentView = { addChildView: view => { view.role = this.childViews.length ? "bar-view" : "game-view"; view.host = this; this.childViews.push(view); if (view.role === "game-view") this.gameView = view; if (view.role === "bar-view") this.barView = view; } }; state.instances.push(this); state.events.push("window:" + this.role); }
       static getAllWindows() { return state.instances.filter(window => !window.destroyed); }
       isDestroyed() { return this.destroyed; }
       isVisible() { return this.visible; }
       isFullScreen() { return this.fullscreen; }
+      isMaximized() { return this.maximized; }
+      getContentSize() { return [this.options.width, this.options.height]; }
       on(name, callback) { const all = this.handlers.get(name) ?? []; all.push(callback); this.handlers.set(name, all); }
       once(name, callback) { const all = this.onceHandlers.get(name) ?? []; all.push(callback); this.onceHandlers.set(name, all); }
-      emit(name, ...args) { for (const callback of this.handlers.get(name) ?? []) callback(...args); const once = this.onceHandlers.get(name) ?? []; this.onceHandlers.delete(name); for (const callback of once) callback(...args); }
+      emit(name, ...args) { for (const callback of this.handlers.get(name) ?? []) callback(...args); const once = this.onceHandlers.get(name) ?? []; this.onceHandlers.delete(name); for (const callback of once) callback(...args); if (name === "ready-to-show" && this.role === "game") this.barView?.webContents.emit("did-finish-load"); }
       show() { this.shows++; this.visible = true; }
       hide() { this.hides++; this.visible = false; }
       focus() { this.focuses++; }
@@ -70,9 +81,14 @@ async function createHarness() {
       destroy() { this.close(); }
       reload() { this.reloads++; }
       setFullScreen(value) { this.fullscreen = value; }
+      setMenuBarVisibility() {}
       setProgressBar() {}
       async loadURL(url) { this.url = url; state.urls ??= []; state.urls.push(url); if (state.rejectLoadFor === this.id) return new Promise((resolve, reject) => { state.rejectLoad = reject; }); }
       async loadFile(path) { this.file = path; }
+    }
+    export class WebContentsView {
+      constructor(options) { this.id = state.views.length + 1; this.options = options; this.role = "pending-view"; this.destroyed = false; this.sent = 0; this.reloads = 0; this.focuses = 0; this.webContents = new Contents(this); this.setBounds = bounds => { this.bounds = bounds; }; this.setVisible = visible => { this.visible = visible; }; state.views.push(this); }
+      setBackgroundColor(color) { this.backgroundColor = color; }
     }
     export const app = {
       isPackaged: false, setName() {}, getAppPath() { return process.env.R06_APP_PATH; }, getPath(name) { return name === "appData" || name === "userData" || name === "sessionData" ? process.env.R06_USER_DATA : process.env.TEMP; }, getVersion() { return "test"; },
@@ -84,7 +100,7 @@ async function createHarness() {
       async showOpenDialog(...args) { state.dialogParents.push(args.length > 1 ? args[0]?.role ?? "destroyed" : undefined); return process.env.R06_SELECTED_BACKUP ? { canceled: false, filePaths: [process.env.R06_SELECTED_BACKUP] } : { canceled: true, filePaths: [] }; },
       showErrorBox(title, message) { state.dialogs.push({ title, message }); },
     };
-    export const ipcMain = { handle(name, callback) { state.handlers ??= {}; state.handlers[name] = callback; }, on() {} };
+    export const ipcMain = { handle(name, callback) { state.handlers ??= {}; state.handlers[name] = callback; }, on(name, callback) { state.handlers ??= {}; state.handlers[name] = callback; } };
     export const Menu = { buildFromTemplate(value) { return value; }, setApplicationMenu(value) { state.menu = value; } };
     export const protocol = { registerSchemesAsPrivileged() {}, handle() {} };
     export const session = { defaultSession: { webRequest: { onBeforeRequest() {} }, setPermissionRequestHandler() {} } };
@@ -105,7 +121,7 @@ async function createHarness() {
   await writeFile(updater, `const artifact = { platform: "windows", arch: "x64", fileName: "setup.exe", size: 1, sha256: "${"a".repeat(64)}", downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v1/setup.exe" };
     const manifest = { schemaVersion: 1, version: "1.2.3", sourceRevisions: { game: "g", assets: "a", locales: "l" }, artifacts: [artifact] };
     export async function checkForUpdate() { return { available: true, artifact, manifest }; }
-    export async function downloadVerified() { globalThis.__r06.downloads = (globalThis.__r06.downloads ?? 0) + 1; return process.env.R06_USER_DATA + "/Updates/setup.exe"; }`);
+    export async function downloadVerified(_artifact, _root, { signal, onProgress } = {}) { globalThis.__r06.downloads = (globalThis.__r06.downloads ?? 0) + 1; if (process.env.R06_SCENARIO === "update-cancel") { onProgress(1, 1); return new Promise((_, reject) => { signal.addEventListener("abort", () => reject(Object.assign(new Error("Update download cancelled"), { code: "UPDATE_CANCELLED" })), { once: true }); const bar = globalThis.__r06.views.find(view => view.role === "bar-view"); globalThis.__r06.handlers["bar:open-update"]({ sender: { id: bar.webContents.id } }); const window = globalThis.__r06.instances.find(candidate => candidate.options.width === 560); globalThis.__r06.handlers["update:cancel"]({ sender: { id: window.webContents.id } }); }); } return process.env.R06_USER_DATA + "/Updates/setup.exe"; }`);
   await writeFile(retention, `const record = (kind, root, arg) => { (globalThis.__r06.prunes ??= []).push({ kind, root, arg }); if (process.env.R06_PRUNE_THROW) throw new Error("injected prune failure"); return { removed: [], errors: [{ path: root, message: "injected entry error" }] }; };
     export async function pruneAutomaticBackups(root, keep) { return record("backups", root, keep); }
     export async function pruneUpdateDownloads(root, version) { return record("updates", root, version); }
@@ -127,7 +143,7 @@ async function createHarness() {
       await click("Type Chart");
       const chart = state.instances.find(window => window.role === "chart");
       chart.emit("ready-to-show");
-      await click("Configure Cheats...");
+      await click("Configure Cheats…");
       const editor = state.instances.find(window => window.role === "editor");
       await click("Restore Backup…");
       const backupWindow = state.instances.find(window => window.role === "backups");
@@ -138,15 +154,15 @@ async function createHarness() {
       await bounded(replacement.loadURL ? Promise.resolve() : Promise.reject(new Error("replacement missing")), "replacement construction");
       state.listeners.activate();
       state.afterRepeatedActivation = games().length;
-      const before = { oldShows: game.shows, replacementShows: replacement.shows, oldReloads: game.reloads, replacementReloads: replacement.reloads };
+      const before = { oldShows: game.shows, replacementShows: replacement.shows, oldReloads: game.gameView.reloads, replacementReloads: replacement.gameView.reloads };
       game.emit("ready-to-show");
       game.emit("closed");
-      game.webContents.emit("before-input-event", { preventDefault() {} }, { type: "keyDown", key: "F5" });
+      game.gameView.webContents.emit("before-input-event", { preventDefault() {} }, { type: "keyDown", key: "F5" });
       game.emit("focus");
-      game.webContents.emit("did-finish-load");
+      game.gameView.webContents.emit("did-finish-load");
       state.listeners.activate();
       state.afterStaleCallbacks = games().length;
-      state.staleSnapshot = { before, oldShows: game.shows, replacementShows: replacement.shows, oldReloads: game.reloads, replacementReloads: replacement.reloads };
+      state.staleSnapshot = { before, oldShows: game.shows, replacementShows: replacement.shows, oldReloads: game.gameView.reloads, replacementReloads: replacement.gameView.reloads };
       state.auxiliaryAlive = !chart.destroyed && !editor.destroyed;
       state.backupWindowSecure = Object.fromEntries(["sandbox", "contextIsolation", "nodeIntegration", "webSecurity"].map(key => [key, backupWindow.options.webPreferences[key]]));
       replacement.emit("ready-to-show");
@@ -185,7 +201,7 @@ async function createHarness() {
       }
       state.coldSnapshot = { flushes: state.flushes, validations: state.validations, relaunches: state.relaunches, args: state.relaunchArgs, created: state.coordinator.created, games: games().length };
     } else if (["cheat-request", "cheat-cancel", "cheat-veto"].includes(process.env.R06_SCENARIO)) {
-      await click("Configure Cheats...");
+      await click("Configure Cheats…");
       const editor = state.instances.find(window => window.role === "editor");
       const result = await state.handlers["cheats:apply"]({ sender: { id: editor.webContents.id } }, { enabled: true });
       if (process.env.R06_SCENARIO === "cheat-request" || process.env.R06_SCENARIO === "cheat-veto") {
@@ -207,6 +223,11 @@ async function createHarness() {
       state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
       await new Promise(resolve => setImmediate(resolve));
       state.coldSnapshot = { flushes: state.flushes, downloads: state.downloads, relaunches: state.relaunches, args: state.relaunchArgs, created: state.coordinator.created, dialogs: state.dialogs };
+    } else if (process.env.R06_SCENARIO === "update-cancel") {
+      const result = await click("Check for Updates…");
+      state.dialogResponses.push(1);
+      await click("Back Up Saves…");
+      state.coldSnapshot = { result, downloads: state.downloads, backups: state.backups, created: state.coordinator.created, dialogs: state.dialogs, games: games().length };
     } else if (["restore-resume", "restore-interrupted", "cheat-resume"].includes(process.env.R06_SCENARIO)) {
       const stored = await (await import("node:fs/promises")).readFile(process.env.R06_USER_DATA + "/cheats.json", "utf8").catch(error => error.code === "ENOENT" ? null : Promise.reject(error));
       state.coldSnapshot = { restoreCalls: state.restoreCalls ?? 0, current: state.coordinator.getCurrent(), transitions: state.coordinator.transitions, clearCalls: state.coordinator.clearCalls, relaunches: state.relaunches, stored, events: state.events, games: games().length, dialogs: state.dialogs };
@@ -216,14 +237,14 @@ async function createHarness() {
       state.coldSnapshot = { current: state.coordinator.getCurrent(), transitions: state.coordinator.transitions, dialogs: state.dialogs, games: games().length };
     } else if (process.env.R06_SCENARIO === "keyboard") {
       let prevented = false;
-      game.webContents.emit("before-input-event", { preventDefault() { prevented = true; } }, { type: "keyDown", key: "F5" });
+      game.gameView.webContents.emit("before-input-event", { preventDefault() { prevented = true; } }, { type: "keyDown", key: "F5" });
       state.keyboardPrevented = prevented;
-      state.afterF5Reloads = game.reloads;
+      state.afterF5Reloads = game.gameView.reloads;
       prevented = false;
-      game.webContents.emit("before-input-event", { preventDefault() { prevented = true; } }, { type: "keyDown", key: "F5", control: true });
+      game.gameView.webContents.emit("before-input-event", { preventDefault() { prevented = true; } }, { type: "keyDown", key: "F5", control: true });
       state.keyboardModifiedPrevented = prevented;
     } else if (process.env.R06_SCENARIO === "keymap-race") {
-      game.webContents.emit("did-finish-load");
+      game.gameView.webContents.emit("did-finish-load");
       await bounded(state.keymapStarted, "delayed keymap read");
       game.close();
       state.listeners.activate();
@@ -250,8 +271,9 @@ async function createHarness() {
       state.listeners["window-all-closed"]();
     }
     const snapshot = {
-      pid: process.pid, platform: process.platform, quits: state.quits, relaunches: state.relaunches, relaunchSnapshots: state.relaunchSnapshots, quitSnapshots: state.quitSnapshots, initialGame: game ? { reloads: game.reloads, shows: game.shows, destroyed: game.destroyed } : null,
+      pid: process.pid, platform: process.platform, quits: state.quits, relaunches: state.relaunches, relaunchSnapshots: state.relaunchSnapshots, quitSnapshots: state.quitSnapshots, initialGame: game ? { reloads: game.gameView.reloads, shows: game.shows, destroyed: game.destroyed } : null,
       games: games().length, instances: state.instances.map(window => ({ role: window.role, webPreferences: Object.fromEntries(["sandbox", "contextIsolation", "nodeIntegration", "webSecurity"].map(key => [key, window.options.webPreferences[key]])), destroyed: window.destroyed, reloads: window.reloads, shows: window.shows, hides: window.hides })),
+      views: state.views.map(view => ({ role: view.role, preload: view.options.webPreferences.preload, webPreferences: Object.fromEntries(["sandbox", "contextIsolation", "nodeIntegration", "webSecurity"].map(key => [key, view.options.webPreferences[key]])), bounds: view.bounds, visible: view.visible, reloads: view.reloads })),
       urls: state.urls ?? [], dialogs: state.dialogs, dialogParents: state.dialogParents, opened: state.opened, flushes: state.flushes, backups: state.backups,
       afterRepeatedActivation: state.afterRepeatedActivation, afterStaleCallbacks: state.afterStaleCallbacks, staleSnapshot: state.staleSnapshot,
       auxiliaryAlive: state.auxiliaryAlive, backupWindowSecure: state.backupWindowSecure, replacementShown: state.replacementShown, keyboardPrevented: state.keyboardPrevented,
@@ -275,7 +297,7 @@ async function launch(scenario) {
   }
   const result = spawnSync(process.execPath, ["--import", pathToFileURL(h.bootstrap).href, h.runner], {
     encoding: "utf8", timeout: 10000,
-    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SELECTED_BACKUP: ["restore-request", "restore-cancel", "restore-resume"].includes(scenario) ? selectedBackup : "", R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: ["cold-request", "cold-veto", "cold-persist-failure", "update-request", "update-open", "update-tampered", "cheat-request", "cheat-veto", "restore-request"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "prune-journal" ? "unknown-operation" : scenario === "update-interrupted" ? "update-resuming" : scenario === "restore-resume" ? "restore-captured" : scenario === "restore-interrupted" ? "restore-resuming" : scenario === "cheat-resume" ? "cheat-captured" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "", R06_PRUNE_THROW: scenario === "prune-throws" ? "1" : "" },
+    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SELECTED_BACKUP: ["restore-request", "restore-cancel", "restore-resume"].includes(scenario) ? selectedBackup : "", R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: scenario === "update-cancel" ? "[0]" : ["cold-request", "cold-veto", "cold-persist-failure", "update-request", "update-open", "update-tampered", "cheat-request", "cheat-veto", "restore-request"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "prune-journal" ? "unknown-operation" : scenario === "update-interrupted" ? "update-resuming" : scenario === "restore-resume" ? "restore-captured" : scenario === "restore-interrupted" ? "restore-resuming" : scenario === "cheat-resume" ? "cheat-captured" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "", R06_PRUNE_THROW: scenario === "prune-throws" ? "1" : "" },
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   return JSON.parse(await readFile(resultPath, "utf8"));
@@ -289,6 +311,10 @@ test("game, cheat editor, chart, and Backup windows use the secure web preferenc
     assert.deepEqual(window.webPreferences, securePreferences, `${role} window`);
   }
   assert.deepEqual(state.backupWindowSecure, securePreferences, "Backup window");
+  assert.deepEqual(state.views.find(view => view.role === "game-view").webPreferences, securePreferences, "game view");
+  assert.deepEqual(state.views.find(view => view.role === "bar-view").webPreferences, securePreferences, "bar view");
+  assert.match(state.views.find(view => view.role === "game-view").preload, /preload-cheats\.cjs$/);
+  assert.match(state.views.find(view => view.role === "bar-view").preload, /bar-window[\\/]preload\.cjs$/);
 });
 
 test("activation reopens one game window while chart and cheat editor survive, and stale callbacks cannot affect it", async () => {
@@ -456,6 +482,17 @@ test("Update requires the cold Backup restart before download continuation and p
   assert.deepEqual(later.coldSnapshot.opened, []);
   assert.equal(later.coldSnapshot.revalidated, 0);
   assert.equal(later.coldSnapshot.games, 1);
+});
+
+test("cancelling an Update download skips dialogs and releases the Backup reservation", async () => {
+  const state = await launch("update-cancel");
+  assert.deepEqual(state.coldSnapshot.result, { available: true, downloaded: false, cancelled: true });
+  assert.equal(state.coldSnapshot.downloads, 1);
+  assert.equal(state.coldSnapshot.backups, 0);
+  assert.deepEqual(state.coldSnapshot.created, []);
+  assert.equal(state.coldSnapshot.games, 1);
+  assert.equal(state.coldSnapshot.dialogs.filter(dialog => dialog.title === "Backup already in progress").length, 0);
+  assert.equal(state.coldSnapshot.dialogs.filter(dialog => dialog.title === "Update check unavailable").length, 0);
 });
 
 test("Update Open revalidates immediately, while installer tampering fails visibly without opening", async () => {

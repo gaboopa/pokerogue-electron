@@ -55,6 +55,12 @@ async function createFixture(root, { failValidation = false, conflict = false, d
   await writeFile(join(gameRoot, "assets", "logo512.png"), "fixture logo\n");
   await writeFile(join(gameRoot, "locales", "en", "fixture.txt"), "fixture locale\n");
   await writeFile(join(gameRoot, "dist", "index.html"), "<!doctype html><title>fixture</title>\n");
+  await mkdir(join(gameRoot, "dist", "fonts"), { recursive: true });
+  await mkdir(join(gameRoot, "dist", "images", "ui", "windows"), { recursive: true });
+  await mkdir(join(gameRoot, "dist", "images", "ui"), { recursive: true });
+  for (const asset of ["fonts/pokemon-emerald-pro.ttf", "images/ui/windows/window_1.png", "images/ui/windows/window_3.png", "images/ui/cursor.png", "logo128.png"]) {
+    await writeFile(join(gameRoot, "dist", asset), "fixture UI asset\n");
+  }
   await writeFile(join(gameRoot, "node_modules", "typescript", "bin", "tsc"), `import assert from "node:assert/strict";\nimport { appendFileSync } from "node:fs";\nassert.equal(process.cwd(), process.env.POKEROGUE_GAME_PATH);\nassert.equal(process.argv[2], "--noEmit");\nappendFileSync(process.env.SYNC_FIXTURE_LOG, "tsc\\n");\n`);
   await writeFile(join(gameRoot, "node_modules", "vitest", "vitest.mjs"), `import assert from "node:assert/strict";\nimport { appendFileSync } from "node:fs";\nassert.equal(process.cwd(), process.env.POKEROGUE_GAME_PATH);\nassert.deepEqual(process.argv.slice(2), ["run", "--silent=passed-only"]);\nappendFileSync(process.env.SYNC_FIXTURE_LOG, "vitest\\n");\n`);
   await writeFile(join(gameRoot, "node_modules", "vite", "bin", "vite.js"), `import assert from "node:assert/strict";\nimport { appendFileSync } from "node:fs";\nimport { mkdir, writeFile } from "node:fs/promises";\nimport { join } from "node:path";\nassert.equal(process.cwd(), process.env.POKEROGUE_GAME_PATH);\nassert.deepEqual(process.argv.slice(2), ["build", "--mode", "app"]);\nawait mkdir("dist", { recursive: true });\nawait writeFile(join("dist", "index.html"), "<!doctype html><main>staged fixture</main>\\n");\nawait writeFile(join("dist", "game.js"), "window.fixture = true;\\n");\nappendFileSync(process.env.SYNC_FIXTURE_LOG, "vite\\n");\n`);

@@ -5,3 +5,5 @@ downloads/
 .local-build/
 *.log
 .env
+*.zip
+src/assets/ui/

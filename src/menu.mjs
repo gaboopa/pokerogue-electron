@@ -17,26 +17,35 @@ export function createMenuTemplate({
   onSelectProfile = () => {},
   onNewProfile = () => {},
 }) {
-  const appSubmenu = [
-    ...(isMac ? [{ role: "about" }, { type: "separator" }] : []),
-    { label: "Check for Updates…", click: onCheckForUpdates },
-    { type: "separator" },
+  const appSubmenu = isMac
+    ? [
+        { role: "about" },
+        { type: "separator" },
+        { label: "Check for Updates…", click: onCheckForUpdates },
+        { type: "separator" },
+        { label: "Copy Diagnostic Report", click: onCopyDiagnosticReport },
+        { type: "separator" },
+        { role: "services", submenu: [] },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ]
+    : [
+        { label: "Check for Updates…", click: onCheckForUpdates },
+        { type: "separator" },
+        { label: "Copy Diagnostic Report", click: onCopyDiagnosticReport },
+        { type: "separator" },
+        { role: "quit" },
+      ];
+
+  const savesSubmenu = [
     { label: "Back Up Saves…", click: onBackup },
     { label: "Restore Backup…", click: onRestore },
+    { type: "separator" },
     { label: "Open Save Folder", click: onOpenSaveFolder },
-    { label: "Copy Diagnostic Report", click: onCopyDiagnosticReport },
-    ...(isMac
-      ? [
-          { type: "separator" },
-          { role: "services", submenu: [] },
-          { type: "separator" },
-          { role: "hide" },
-          { role: "hideOthers" },
-          { role: "unhide" },
-          { type: "separator" },
-          { role: "quit" },
-        ]
-      : [{ type: "separator" }, { role: "quit" }]),
   ];
 
   const viewSubmenu = [
@@ -52,12 +61,26 @@ export function createMenuTemplate({
     { label: "New Profile…", click: onNewProfile },
   ];
 
+  const chartSeparator = utilities.findIndex(item => item.type === "separator");
+  const webUtilities = chartSeparator === -1 ? utilities : utilities.slice(0, chartSeparator);
+  const charts = chartSeparator === -1 ? [] : utilities.slice(chartSeparator + 1);
+  const toolsSubmenu = [
+    { label: "OPENS IN BROWSER", enabled: false, header: true },
+    ...webUtilities,
+    { type: "separator" },
+    { label: "OFFLINE", enabled: false, header: true },
+    ...charts,
+    { type: "separator" },
+    { label: "KEYBINDINGS", enabled: false, header: true },
+    ...keybindings,
+  ];
+
   const template = [
-    { label: productName, submenu: appSubmenu },
+    ...(isMac ? [{ label: productName, submenu: appSubmenu }] : [{ label: "Game", submenu: appSubmenu }]),
     ...(isMac ? [{ label: "File", submenu: [{ role: "close" }] }] : []),
+    { label: "Saves", submenu: savesSubmenu },
     { label: "View", submenu: viewSubmenu },
-    { label: "Utilities", submenu: utilities },
-    { label: "Keybindings", submenu: keybindings },
+    { label: "Tools", submenu: toolsSubmenu },
     { label: "Cheats", submenu: cheats },
     { label: "Profiles", submenu: profiles },
     ...(isMac

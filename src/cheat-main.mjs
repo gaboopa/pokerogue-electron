@@ -1,6 +1,7 @@
 import { BrowserWindow, dialog, ipcMain } from "electron";
 import { join } from "node:path";
 import { MAXIMUM_FUN_CHEATS, NEUTRAL_CHEATS, applyCheatConfiguration, loadCheatDocument } from "./cheats.mjs";
+import { showThemedMessageBox } from "./dialog-main.mjs";
 
 export function createCheatController({ moduleRoot, configPath, icon, getMainWindow, backup, relaunch }) {
   let editorWindow;
@@ -8,12 +9,15 @@ export function createCheatController({ moduleRoot, configPath, icon, getMainWin
     if (!editorWindow || editorWindow.isDestroyed() || event.sender.id !== editorWindow.webContents.id) throw new Error("Cheat configuration writes are restricted to the local control center.");
   };
   const confirm = async (_current, next) => {
-    const result = await dialog.showMessageBox(editorWindow ?? getMainWindow(), {
+    const candidate = editorWindow && !editorWindow.isDestroyed() ? editorWindow : getMainWindow();
+    const parent = candidate && !candidate.isDestroyed() ? candidate : undefined;
+    const options = {
       type: "warning", title: "Shared save warning",
       message: next.enabled ? "Apply cheats to shared saves?" : "Disable cheats for shared saves?",
       detail: "A verified timestamped backup will be created before this change. Progress earned while cheats were active will remain in your saves.",
       buttons: ["Back Up and Restart", "Cancel"], defaultId: 1, cancelId: 1, noLink: true,
-    });
+    };
+    const result = await (parent ? showThemedMessageBox(parent, options) : dialog.showMessageBox(options));
     return result.response === 0;
   };
   const apply = requested => applyCheatConfiguration({ path: configPath, requested, confirm, backup, relaunch });
@@ -21,7 +25,7 @@ export function createCheatController({ moduleRoot, configPath, icon, getMainWin
   function openWindow() {
     if (editorWindow && !editorWindow.isDestroyed()) { editorWindow.show(); editorWindow.focus(); return; }
     editorWindow = new BrowserWindow({
-      width: 760, height: 820, minWidth: 620, minHeight: 650, show: false, autoHideMenuBar: true,
+      width: 800, height: 900, minWidth: 680, minHeight: 700, show: false, autoHideMenuBar: true, frame: false, title: "Cheat Control Center",
       parent: getMainWindow() ?? undefined, ...(icon ? { icon } : {}),
       webPreferences: { preload: join(moduleRoot, "src", "cheat-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
     });

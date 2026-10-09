@@ -22,6 +22,21 @@ let html = await readFile(indexPath, "utf8");
 html = html.replace(/<script>\s*if \("serviceWorker" in navigator\)[\s\S]*?<\/script>/, "<!-- Service worker disabled by the Electron wrapper. -->");
 await writeFile(indexPath, html);
 
+const uiAssets = [
+  ["fonts/pokemon-emerald-pro.ttf", "pokemon-emerald-pro.ttf"],
+  ["images/ui/windows/window_1.png", "window_1.png"],
+  ["images/ui/windows/window_3.png", "window_3.png"],
+  ["images/ui/cursor.png", "cursor.png"],
+  ["logo128.png", "logo128.png"],
+];
+const uiAssetRoot = join(wrapperRoot, "src", "assets", "ui");
+await mkdir(uiAssetRoot, { recursive: true });
+for (const [source, name] of uiAssets) {
+  const sourcePath = join(staging, "game", source);
+  if (!existsSync(sourcePath)) throw new Error(`Required game asset is missing: ${sourcePath}`);
+  await cp(sourcePath, join(uiAssetRoot, name));
+}
+
 const revisions = {
   builtAt: new Date().toISOString(),
   game: await git(["rev-parse", "HEAD"]),

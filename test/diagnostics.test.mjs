@@ -51,12 +51,13 @@ test("a named Profile is anonymized and unused facts are not copied", () => {
   assert.doesNotMatch(report, /Player Secret|Other Secret|C:\\Users|Save data/);
 });
 
-test("Copy Diagnostic Report follows Open Save Folder in the application menu", () => {
+test("Copy Diagnostic Report stays in the Game menu after Check for Updates", () => {
   const menu = createMenuTemplate({
     isMac: false, productName: "PokeRogue Electron", onCheckForUpdates() {}, onBackup() {}, onRestore() {},
     onOpenSaveFolder() {}, onCopyDiagnosticReport() {}, onReload() {}, onToggleFullscreen() {}, onDeveloperTools() {},
     utilities: [], keybindings: [], cheats: [],
   });
   const labels = menu[0].submenu.map(item => item.label);
-  assert.equal(labels.indexOf("Copy Diagnostic Report"), labels.indexOf("Open Save Folder") + 1);
+  assert.equal(menu[0].label, "Game");
+  assert.equal(labels.indexOf("Copy Diagnostic Report"), labels.indexOf("Check for Updates…") + 2);
 });

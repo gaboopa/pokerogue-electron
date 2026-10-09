@@ -23,7 +23,8 @@ test("desktop reload, fullscreen, and developer shortcuts remain registered", ()
   const view = menu.find((item) => item.label === "View");
   assert.deepEqual(view.submenu.map((item) => item.accelerator), ["CommandOrControl+R", "F11", "F12"]);
   const labels = menu.map(item => item.label);
-  assert.equal(menu[0].submenu.find(item => item.label === "Restore Backup…").label, "Restore Backup…");
+  assert.deepEqual(labels, ["Game", "Saves", "View", "Tools", "Cheats", "Profiles"]);
+  assert.equal(menu.find(item => item.label === "Saves").submenu.find(item => item.label === "Restore Backup…").label, "Restore Backup…");
   assert.equal(labels.indexOf("Profiles"), labels.indexOf("Cheats") + 1);
   const profiles = menu.find(item => item.label === "Profiles").submenu;
   assert.deepEqual(profiles.filter(item => item.type === "radio").map(item => item.label), ["Default", "Clean"]);
