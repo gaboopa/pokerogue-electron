@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import fs from "node:fs";
 import { mkdir, open, rename, rm, stat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -18,7 +18,7 @@ export function compareVersions(a, b) {
 
 export async function sha256File(path) {
   const hash = createHash("sha256");
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  for await (const chunk of fs.createReadStream(path)) hash.update(chunk);
   return hash.digest("hex");
 }
 

@@ -1,5 +1,6 @@
-import { BrowserWindow, dialog, ipcMain, screen } from "electron";
+import { dialog, ipcMain, screen } from "electron";
 import { join } from "node:path";
+import { createChildWindow } from "./child-window.mjs";
 import { MAXIMUM_FUN_CHEATS, NEUTRAL_CHEATS, applyCheatConfiguration, loadCheatDocument } from "./cheats.mjs";
 import { showThemedMessageBox } from "./dialog-main.mjs";
 
@@ -36,13 +37,10 @@ export function createCheatController({ moduleRoot, configPath, icon, getMainWin
     const candidate = getMainWindow();
     const parent = candidate && !candidate.isDestroyed() ? candidate : undefined;
     const workArea = parent ? screen.getDisplayMatching(parent.getBounds()).workAreaSize : screen.getPrimaryDisplay().workAreaSize;
-    editorWindow = new BrowserWindow({
-      ...cheatWindowSize(workArea), show: false, autoHideMenuBar: true, frame: false, title: "Cheat Control Center",
+    editorWindow = createChildWindow({
+      ...cheatWindowSize(workArea), title: "Cheat Control Center",
       ...(parent ? { parent } : {}), ...(icon ? { icon } : {}),
-      webPreferences: { preload: join(moduleRoot, "src", "cheat-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
-    });
-    editorWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    editorWindow.webContents.on("will-navigate", event => event.preventDefault());
+    }, join(moduleRoot, "src", "cheat-window", "preload.cjs"));
     editorWindow.once("ready-to-show", () => editorWindow.show());
     editorWindow.on("closed", () => { editorWindow = undefined; });
     void editorWindow.loadFile(join(moduleRoot, "src", "cheat-window", "index.html"));
