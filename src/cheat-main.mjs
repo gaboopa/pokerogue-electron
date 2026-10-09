@@ -1,7 +1,16 @@
-import { BrowserWindow, dialog, ipcMain } from "electron";
+import { BrowserWindow, dialog, ipcMain, screen } from "electron";
 import { join } from "node:path";
 import { MAXIMUM_FUN_CHEATS, NEUTRAL_CHEATS, applyCheatConfiguration, loadCheatDocument } from "./cheats.mjs";
 import { showThemedMessageBox } from "./dialog-main.mjs";
+
+export function cheatWindowSize({ width: workAreaWidth, height: workAreaHeight }) {
+  return {
+    width: Math.min(1140, workAreaWidth),
+    height: Math.min(880, workAreaHeight),
+    minWidth: Math.min(1140, workAreaWidth),
+    minHeight: Math.min(700, workAreaHeight),
+  };
+}
 
 export function createCheatController({ moduleRoot, configPath, icon, getMainWindow, backup, relaunch }) {
   let editorWindow;
@@ -24,9 +33,12 @@ export function createCheatController({ moduleRoot, configPath, icon, getMainWin
 
   function openWindow() {
     if (editorWindow && !editorWindow.isDestroyed()) { editorWindow.show(); editorWindow.focus(); return; }
+    const candidate = getMainWindow();
+    const parent = candidate && !candidate.isDestroyed() ? candidate : undefined;
+    const workArea = parent ? screen.getDisplayMatching(parent.getBounds()).workAreaSize : screen.getPrimaryDisplay().workAreaSize;
     editorWindow = new BrowserWindow({
-      width: 800, height: 900, minWidth: 680, minHeight: 700, show: false, autoHideMenuBar: true, frame: false, title: "Cheat Control Center",
-      parent: getMainWindow() ?? undefined, ...(icon ? { icon } : {}),
+      ...cheatWindowSize(workArea), show: false, autoHideMenuBar: true, frame: false, title: "Cheat Control Center",
+      ...(parent ? { parent } : {}), ...(icon ? { icon } : {}),
       webPreferences: { preload: join(moduleRoot, "src", "cheat-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
     });
     editorWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
