@@ -147,6 +147,8 @@ Everything comes from the repo's staged game, so there are no new artwork depend
 
 These override the text above where they differ.
 
+- **Cheat Control Center.** The window is 1140 × 880 (minimum 1140 × 700), with a merged top row, three-column checkboxes and no heading. The handoff's 800 × 900 layout needs about 1,130px of height at the specified type size.
+
 - **In this repository the mock is `mock.dc.html`** (renamed from `Wrapper UI Final.dc.html`). Its inline styles are the reference for exact layout. `support.js` and the mock's `assets/` folder are not versioned, so it does not render from here; read it as source.
 - **Title bar overflow.** Chips never wrap (`white-space: nowrap`). The profile chip truncates with an ellipsis and is the first thing to shrink; menu labels and window controls never shrink. The 800px minimum width stays.
 - **Assets.** `scripts/build-game.mjs` copies the font, `window_1.png`, `window_3.png`, `cursor.png` and `logo128.png` from `staging/game/` into `src/assets/ui/` when it stages the game. That folder is ignored by git, so the files are absent in a fresh checkout until the game is staged; every window must stay usable (fallback monospace font, no frames) without them.

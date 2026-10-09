@@ -3,9 +3,8 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cheat Control Center</title><link rel="stylesheet" href="../ui/theme.css"><link rel="stylesheet" href="styles.css"></head>
 <body>
   <div class="titlebar"><span class="titlebar-title">Cheat Control Center</span><button id="window-close" class="titlebar-close" aria-label="Close">x</button></div>
-  <header><div><h1>Cheat Control Center</h1><p>Backed up first. Applied after restart.</p></div><span id="state" class="state">VANILLA</span></header>
   <main>
-    <section class="hero frame frame-hero"><label class="switch"><input id="enabled" class="switch-input" type="checkbox"><strong>Enable cheats</strong></label><button id="maximum" class="secondary">Maximum Fun Preset</button></section>
+    <section class="top-row frame frame-hero"><label class="switch"><input id="enabled" class="switch-input" type="checkbox"><strong>Enable cheats</strong></label><span class="spacer"></span><span id="state" class="state">VANILLA</span><button id="maximum" class="secondary">Maximum Fun Preset</button></section>
     <div id="groups" class="groups">
       <section class="group frame"><h2>Economy &amp; progression</h2><div class="grid"><label>MINIMUM MONEY<input id="minimumMoney" type="number" min="0" max="999999999"></label><label>XP MULTIPLIER<input id="xpMultiplier" type="number" min="1" max="100"></label><label>EXTRA CANDY / FRIENDSHIP<input id="extraCandy" type="number" min="0" max="100"></label></div><div class="checks"><label><input id="disableLevelCap" type="checkbox">Disable level cap</label><label><input id="freeShopPurchases" type="checkbox">Free shop purchases</label><label><input id="freeRerolls" type="checkbox">Free rerolls</label><label><input id="freeGacha" type="checkbox">Free Gacha pulls</label><label><input id="instantEggHatch" type="checkbox">Instant egg hatching</label></div></section>
       <section class="group frame"><h2>Minimum Poké Ball inventory</h2><div class="grid balls"><label>POKÉ<input id="poke" type="number" min="0" max="999"></label><label>GREAT<input id="great" type="number" min="0" max="999"></label><label>ULTRA<input id="ultra" type="number" min="0" max="999"></label><label>ROGUE<input id="rogue" type="number" min="0" max="999"></label><label>MASTER<input id="master" type="number" min="0" max="999"></label></div></section>
@@ -13,7 +12,7 @@
     </div>
     <p id="message" role="status"></p>
   </main>
-  <footer><button id="reset" class="destructive">Reset to Vanilla</button><span></span><button id="cancel" class="secondary">Cancel</button><button id="apply" class="primary">Apply &amp; Restart</button></footer>
+  <footer><button id="reset" class="destructive">Reset to Vanilla</button><span class="hint">Backed up first. Applied after restart.</span><button id="cancel" class="secondary">Cancel</button><button id="apply" class="primary">Apply &amp; Restart</button></footer>
   <script type="module" src="renderer.mjs"></script>
 </body>
 </html>

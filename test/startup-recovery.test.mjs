@@ -55,6 +55,7 @@ async function harness() {
     export const ipcMain = { handle() {}, on() {} };
     export const Menu = { buildFromTemplate(v) { return v; }, setApplicationMenu() {} };
     export const protocol = { registerSchemesAsPrivileged() {}, handle() {} };
+    export const screen = { getDisplayMatching() { return { workAreaSize: { width: 1920, height: 1080 } }; } };
     export const session = { defaultSession: { webRequest: { onBeforeRequest() {} }, setPermissionRequestHandler() {} } };
     export const shell = { async openPath(path) { state.opened.push(path); return ""; }, async openExternal() {} };`);
   await writeFile(backup, `import { appendFile, mkdir, writeFile } from "node:fs/promises";
