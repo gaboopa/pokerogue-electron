@@ -81,6 +81,8 @@ async function matchesArtifact(path, artifact, statFile) {
 }
 
 export async function downloadVerified(artifact, destinationRoot, fileOperations = {}) {
+  const signal = fileOperations.signal;
+  if (signal?.aborted) throw Object.assign(new Error("Update download cancelled"), { code: "UPDATE_CANCELLED" });
   const statFile = fileOperations.stat ?? stat;
   const renameFile = fileOperations.rename ?? rename;
   const writeStreamFor = fileOperations.writeStream ?? (handle => handle.createWriteStream());
@@ -89,6 +91,7 @@ export async function downloadVerified(artifact, destinationRoot, fileOperations
   const finalPath = resolve(destinationRoot, basename(new URL(artifact.downloadUrl).pathname));
 
   return withDestinationLock(finalPath, async () => {
+    if (signal?.aborted) throw Object.assign(new Error("Update download cancelled"), { code: "UPDATE_CANCELLED" });
     if (await matchesArtifact(finalPath, artifact, statFile)) return finalPath;
     try {
       await statFile(finalPath);
@@ -102,6 +105,9 @@ export async function downloadVerified(artifact, destinationRoot, fileOperations
     let fileHandle;
     const controller = new AbortController();
     let stallTimer;
+    const cancel = () => controller.abort(Object.assign(new Error("Update download cancelled"), { code: "UPDATE_CANCELLED" }));
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
     const armStall = () => {
       clearTimeout(stallTimer);
       stallTimer = setTimeout(() => controller.abort(new Error(`Update download stalled: no data received for ${stallTimeoutMs / 1000} seconds`)), stallTimeoutMs);
@@ -115,6 +121,7 @@ export async function downloadVerified(artifact, destinationRoot, fileOperations
       fileHandle = await open(partialPath, "wx");
       ownsPartial = true;
       await pipeline(response.body.pipeThrough(transform), writeStreamFor(fileHandle));
+      if (controller.signal.aborted) throw controller.signal.reason;
       const size = (await statFile(partialPath)).size;
       if (size !== artifact.size || hash.digest("hex").toLowerCase() !== artifact.sha256.toLowerCase()) {
         throw new Error("Downloaded update failed verification");
@@ -122,7 +129,11 @@ export async function downloadVerified(artifact, destinationRoot, fileOperations
       await renameFile(partialPath, finalPath);
       ownsPartial = false;
       return finalPath;
+    } catch (error) {
+      if (controller.signal.aborted) throw controller.signal.reason;
+      throw error;
     } finally {
+      signal?.removeEventListener("abort", cancel);
       clearTimeout(stallTimer);
       if (fileHandle) await fileHandle.close().catch(() => {});
       if (ownsPartial) await rm(partialPath, { force: true });

@@ -7,4 +7,5 @@ contextBridge.exposeInMainWorld("windowBar", {
   minimize: () => ipcRenderer.send("bar:minimize"),
   toggleMaximize: () => ipcRenderer.send("bar:toggle-maximize"),
   close: () => ipcRenderer.send("bar:close"),
+  openUpdate: () => ipcRenderer.send("bar:open-update"),
 });

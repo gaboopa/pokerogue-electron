@@ -100,7 +100,7 @@ async function createHarness() {
       async showOpenDialog(...args) { state.dialogParents.push(args.length > 1 ? args[0]?.role ?? "destroyed" : undefined); return process.env.R06_SELECTED_BACKUP ? { canceled: false, filePaths: [process.env.R06_SELECTED_BACKUP] } : { canceled: true, filePaths: [] }; },
       showErrorBox(title, message) { state.dialogs.push({ title, message }); },
     };
-    export const ipcMain = { handle(name, callback) { state.handlers ??= {}; state.handlers[name] = callback; }, on() {} };
+    export const ipcMain = { handle(name, callback) { state.handlers ??= {}; state.handlers[name] = callback; }, on(name, callback) { state.handlers ??= {}; state.handlers[name] = callback; } };
     export const Menu = { buildFromTemplate(value) { return value; }, setApplicationMenu(value) { state.menu = value; } };
     export const protocol = { registerSchemesAsPrivileged() {}, handle() {} };
     export const session = { defaultSession: { webRequest: { onBeforeRequest() {} }, setPermissionRequestHandler() {} } };
@@ -121,7 +121,7 @@ async function createHarness() {
   await writeFile(updater, `const artifact = { platform: "windows", arch: "x64", fileName: "setup.exe", size: 1, sha256: "${"a".repeat(64)}", downloadUrl: "https://github.com/gaboopa/pokerogue-electron/releases/download/v1/setup.exe" };
     const manifest = { schemaVersion: 1, version: "1.2.3", sourceRevisions: { game: "g", assets: "a", locales: "l" }, artifacts: [artifact] };
     export async function checkForUpdate() { return { available: true, artifact, manifest }; }
-    export async function downloadVerified() { globalThis.__r06.downloads = (globalThis.__r06.downloads ?? 0) + 1; return process.env.R06_USER_DATA + "/Updates/setup.exe"; }`);
+    export async function downloadVerified(_artifact, _root, { signal, onProgress } = {}) { globalThis.__r06.downloads = (globalThis.__r06.downloads ?? 0) + 1; if (process.env.R06_SCENARIO === "update-cancel") { onProgress(1, 1); return new Promise((_, reject) => { signal.addEventListener("abort", () => reject(Object.assign(new Error("Update download cancelled"), { code: "UPDATE_CANCELLED" })), { once: true }); const bar = globalThis.__r06.views.find(view => view.role === "bar-view"); globalThis.__r06.handlers["bar:open-update"]({ sender: { id: bar.webContents.id } }); const window = globalThis.__r06.instances.find(candidate => candidate.options.width === 560); globalThis.__r06.handlers["update:cancel"]({ sender: { id: window.webContents.id } }); }); } return process.env.R06_USER_DATA + "/Updates/setup.exe"; }`);
   await writeFile(retention, `const record = (kind, root, arg) => { (globalThis.__r06.prunes ??= []).push({ kind, root, arg }); if (process.env.R06_PRUNE_THROW) throw new Error("injected prune failure"); return { removed: [], errors: [{ path: root, message: "injected entry error" }] }; };
     export async function pruneAutomaticBackups(root, keep) { return record("backups", root, keep); }
     export async function pruneUpdateDownloads(root, version) { return record("updates", root, version); }
@@ -223,6 +223,11 @@ async function createHarness() {
       state.fireApp("will-quit", { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
       await new Promise(resolve => setImmediate(resolve));
       state.coldSnapshot = { flushes: state.flushes, downloads: state.downloads, relaunches: state.relaunches, args: state.relaunchArgs, created: state.coordinator.created, dialogs: state.dialogs };
+    } else if (process.env.R06_SCENARIO === "update-cancel") {
+      const result = await click("Check for Updates…");
+      state.dialogResponses.push(1);
+      await click("Back Up Saves…");
+      state.coldSnapshot = { result, downloads: state.downloads, backups: state.backups, created: state.coordinator.created, dialogs: state.dialogs, games: games().length };
     } else if (["restore-resume", "restore-interrupted", "cheat-resume"].includes(process.env.R06_SCENARIO)) {
       const stored = await (await import("node:fs/promises")).readFile(process.env.R06_USER_DATA + "/cheats.json", "utf8").catch(error => error.code === "ENOENT" ? null : Promise.reject(error));
       state.coldSnapshot = { restoreCalls: state.restoreCalls ?? 0, current: state.coordinator.getCurrent(), transitions: state.coordinator.transitions, clearCalls: state.coordinator.clearCalls, relaunches: state.relaunches, stored, events: state.events, games: games().length, dialogs: state.dialogs };
@@ -292,7 +297,7 @@ async function launch(scenario) {
   }
   const result = spawnSync(process.execPath, ["--import", pathToFileURL(h.bootstrap).href, h.runner], {
     encoding: "utf8", timeout: 10000,
-    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SELECTED_BACKUP: ["restore-request", "restore-cancel", "restore-resume"].includes(scenario) ? selectedBackup : "", R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: ["cold-request", "cold-veto", "cold-persist-failure", "update-request", "update-open", "update-tampered", "cheat-request", "cheat-veto", "restore-request"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "prune-journal" ? "unknown-operation" : scenario === "update-interrupted" ? "update-resuming" : scenario === "restore-resume" ? "restore-captured" : scenario === "restore-interrupted" ? "restore-resuming" : scenario === "cheat-resume" ? "cheat-captured" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "", R06_PRUNE_THROW: scenario === "prune-throws" ? "1" : "" },
+    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SELECTED_BACKUP: ["restore-request", "restore-cancel", "restore-resume"].includes(scenario) ? selectedBackup : "", R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: scenario === "update-cancel" ? "[0]" : ["cold-request", "cold-veto", "cold-persist-failure", "update-request", "update-open", "update-tampered", "cheat-request", "cheat-veto", "restore-request"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "prune-journal" ? "unknown-operation" : scenario === "update-interrupted" ? "update-resuming" : scenario === "restore-resume" ? "restore-captured" : scenario === "restore-interrupted" ? "restore-resuming" : scenario === "cheat-resume" ? "cheat-captured" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "", R06_PRUNE_THROW: scenario === "prune-throws" ? "1" : "" },
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   return JSON.parse(await readFile(resultPath, "utf8"));
@@ -477,6 +482,17 @@ test("Update requires the cold Backup restart before download continuation and p
   assert.deepEqual(later.coldSnapshot.opened, []);
   assert.equal(later.coldSnapshot.revalidated, 0);
   assert.equal(later.coldSnapshot.games, 1);
+});
+
+test("cancelling an Update download skips dialogs and releases the Backup reservation", async () => {
+  const state = await launch("update-cancel");
+  assert.deepEqual(state.coldSnapshot.result, { available: true, downloaded: false, cancelled: true });
+  assert.equal(state.coldSnapshot.downloads, 1);
+  assert.equal(state.coldSnapshot.backups, 0);
+  assert.deepEqual(state.coldSnapshot.created, []);
+  assert.equal(state.coldSnapshot.games, 1);
+  assert.equal(state.coldSnapshot.dialogs.filter(dialog => dialog.title === "Backup already in progress").length, 0);
+  assert.equal(state.coldSnapshot.dialogs.filter(dialog => dialog.title === "Update check unavailable").length, 0);
 });
 
 test("Update Open revalidates immediately, while installer tampering fails visibly without opening", async () => {

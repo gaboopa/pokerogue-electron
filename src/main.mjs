@@ -44,6 +44,9 @@ let startupReady = false;
 let startupRestarting = false;
 let backupRequestPromise;
 let backupRequestActive = false;
+let updateWindow;
+let updateAbortController;
+let updateProgressState;
 
 function getLiveMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
@@ -74,7 +77,7 @@ async function pushBarState() {
     barMaximized = getLiveMainWindow()?.isMaximized() ?? false;
     barView.webContents.send("bar:state", {
       menus: serializeMenuTemplate(mainMenuTemplate, process.platform), profileName,
-      cheatsEnabled: document.config.enabled, mac: process.platform === "darwin", maximized: barMaximized,
+      cheatsEnabled: document.config.enabled, mac: process.platform === "darwin", maximized: barMaximized, update: updateProgressState ?? null,
     });
   } catch (error) { console.error(`Could not load cheat status for title bar: ${error.message}`); }
 }
@@ -101,6 +104,43 @@ function registerBarIpc() {
   ipcMain.on("bar:minimize", event => { if (barView && event.sender.id === barView.webContents.id) getLiveMainWindow()?.minimize(); });
   ipcMain.on("bar:toggle-maximize", event => { if (!barView || event.sender.id !== barView.webContents.id) return; const window = getLiveMainWindow(); if (window) window.isMaximized() ? window.unmaximize() : window.maximize(); });
   ipcMain.on("bar:close", event => { if (barView && event.sender.id === barView.webContents.id) getLiveMainWindow()?.close(); });
+  ipcMain.on("bar:open-update", event => { if (barView && event.sender.id === barView.webContents.id) openUpdateWindow(); });
+  ipcMain.on("update:cancel", event => { if (updateWindow && !updateWindow.isDestroyed() && event.sender.id === updateWindow.webContents.id && updateAbortController) updateAbortController.abort(); });
+  ipcMain.on("update:close", event => { if (updateWindow && !updateWindow.isDestroyed() && event.sender.id === updateWindow.webContents.id) updateWindow.close(); });
+}
+
+function publishUpdateProgress(progress) {
+  updateProgressState = progress;
+  if (barView && !barView.webContents.isDestroyed()) barView.webContents.send("bar:state", { update: progress });
+  if (updateWindow && !updateWindow.isDestroyed()) updateWindow.webContents.send("update:progress", progress);
+  if (!progress && updateWindow && !updateWindow.isDestroyed()) updateWindow.close();
+}
+
+function openUpdateWindow() {
+  if (!updateProgressState) return;
+  if (updateWindow && !updateWindow.isDestroyed()) { updateWindow.show(); updateWindow.focus(); return; }
+  const parent = getLiveMainWindow();
+  if (!parent) return;
+  const window = new BrowserWindow({
+    width: 560, height: 300, parent, modal: false, frame: false, resizable: false, show: false, autoHideMenuBar: true,
+    title: `Updating to ${updateProgressState.version}`,
+    webPreferences: { preload: join(moduleRoot, "src", "update-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+  });
+  updateWindow = window;
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("will-navigate", event => event.preventDefault());
+  window.webContents.on("did-finish-load", () => {
+    if (updateWindow !== window || window.isDestroyed()) return;
+    if (!updateProgressState) { window.close(); return; }
+    window.webContents.send("update:progress", updateProgressState);
+    setTimeout(async () => {
+      if (updateWindow !== window || window.isDestroyed()) return;
+      window.setContentSize(560, await window.webContents.executeJavaScript("document.fonts.ready.then(() => document.body.scrollHeight)"));
+      if (updateWindow === window && !window.isDestroyed()) window.show();
+    }, 50);
+  });
+  window.on("closed", () => { if (updateWindow === window) updateWindow = undefined; });
+  void window.loadFile(join(moduleRoot, "src", "update-window", "index.html"));
 }
 
 function showMessageBox(options, parent = getLiveMainWindow()) {
@@ -730,16 +770,29 @@ async function performUpdateCheck() {
     const answer = await showMessageBox({ type: "info", title: "Update available", message: `Version ${result.manifest.version} is available.`, detail: "Downloading requires a restart to make the cold Backup before the installer can be opened. Continue?", buttons: ["Download and Restart", "Cancel"], defaultId: 0, cancelId: 1 });
     if (answer.response !== 0) return { available: true, downloaded: false };
     let lastPercent = -1;
+    let lastPublishedPercent = 0;
+    updateAbortController = new AbortController();
+    publishUpdateProgress({ version: result.manifest.version, received: 0, total: result.artifact.size });
     const onProgress = (received, total) => {
       const percent = Math.floor(received / total * 100);
-      if (percent === lastPercent) return;
-      lastPercent = percent;
-      getLiveMainWindow()?.setProgressBar(received / total);
+      if (percent !== lastPercent) {
+        lastPercent = percent;
+        getLiveMainWindow()?.setProgressBar(received / total);
+      }
+      const publishedPercent = Math.round(received / total * 100);
+      if (publishedPercent === lastPublishedPercent) return;
+      lastPublishedPercent = publishedPercent;
+      publishUpdateProgress({ version: result.manifest.version, received, total });
     };
     try {
-      await downloadVerified(result.artifact, paths().downloadRoot, { onProgress });
+      await downloadVerified(result.artifact, paths().downloadRoot, { onProgress, signal: updateAbortController.signal });
+    } catch (error) {
+      if (error.code === "UPDATE_CANCELLED") return { available: true, downloaded: false, cancelled: true };
+      throw error;
     } finally {
       getLiveMainWindow()?.setProgressBar(-1);
+      updateAbortController = undefined;
+      publishUpdateProgress(null);
     }
     const requested = await requestColdBackup("update", { manifest: result.manifest, platform, arch: process.arch }, true);
     keepReservation = requested.requested || requested.journalPending;
