@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activateMenuItem, calculateViewBounds, serializeMenuTemplate, trackLoneAlt } from "../src/window-bar.mjs";
+import { activateMenuItem, calculateViewBounds, serializeMenuTemplate, trackLoneAlt, transitionFullscreenReveal } from "../src/window-bar.mjs";
 import { transitionMenu } from "../src/bar-window/menu-state.mjs";
 
 const menus = [
@@ -48,7 +48,40 @@ test("view layout covers normal, menu, fullscreen, and minimum windows", () => {
   assert.deepEqual(calculateViewBounds(1280, 800, false, false), { bar: { x: 0, y: 0, width: 1280, height: 48 }, game: { x: 0, y: 48, width: 1280, height: 752 }, barVisible: true });
   assert.deepEqual(calculateViewBounds(1280, 800, false, true), { bar: { x: 0, y: 0, width: 1280, height: 800 }, game: { x: 0, y: 48, width: 1280, height: 752 }, barVisible: true });
   assert.deepEqual(calculateViewBounds(1280, 800, true, true), { bar: { x: 0, y: 0, width: 1280, height: 0 }, game: { x: 0, y: 0, width: 1280, height: 800 }, barVisible: false });
+  assert.deepEqual(calculateViewBounds(1280, 800, true, false, true), { bar: { x: 0, y: 0, width: 1280, height: 48 }, game: { x: 0, y: 0, width: 1280, height: 800 }, barVisible: true });
+  assert.deepEqual(calculateViewBounds(1280, 800, true, true, true), { bar: { x: 0, y: 0, width: 1280, height: 800 }, game: { x: 0, y: 0, width: 1280, height: 800 }, barVisible: true });
   assert.deepEqual(calculateViewBounds(800, 600, false, false), { bar: { x: 0, y: 0, width: 800, height: 48 }, game: { x: 0, y: 48, width: 800, height: 552 }, barVisible: true });
+});
+
+test("fullscreen bar reveal follows edge, delay, menu, Alt, and fullscreen transitions", () => {
+  let now = 1000, state = { revealed: false, belowSince: null };
+  const stepReveal = (type, details = {}, menuOpen = false) => state = transitionFullscreenReveal(state, { type, ...details }, now, menuOpen);
+  stepReveal("pointer", { atTop: true });
+  assert.equal(state.revealed, true);
+  stepReveal("pointer", { belowBar: true });
+  now += 599;
+  stepReveal("pointer", { belowBar: true });
+  assert.equal(state.revealed, true);
+  now++;
+  stepReveal("pointer", { belowBar: true });
+  assert.equal(state.revealed, false);
+
+  stepReveal("pointer", { atTop: true });
+  stepReveal("pointer", { belowBar: true }, true);
+  now += 600;
+  stepReveal("pointer", { belowBar: true }, true);
+  assert.equal(state.revealed, true);
+  stepReveal("alt");
+  assert.equal(state.revealed, false);
+  stepReveal("alt");
+  assert.equal(state.revealed, true);
+  assert.deepEqual(trackLoneAlt(false, { type: "keyDown", key: "Alt" }), { pending: true, activate: false });
+  assert.deepEqual(trackLoneAlt(true, { type: "keyDown", key: "Tab", alt: true }), { pending: false, activate: false });
+  stepReveal("escape");
+  assert.equal(state.revealed, false);
+  stepReveal("pointer", { atTop: true });
+  stepReveal("leave-fullscreen");
+  assert.deepEqual(state, { revealed: false, belowSince: null });
 });
 
 test("only an unmodified Alt press and release activates the bar", () => {

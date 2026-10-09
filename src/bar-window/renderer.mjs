@@ -89,6 +89,7 @@ bar.addEventListener("click", event => { const button = event.target.closest("bu
 document.addEventListener("pointerdown", event => { if (state.open !== null && !dropdown.contains(event.target) && !nav.contains(event.target)) apply({ type: "outside" }); });
 document.addEventListener("keydown", event => {
   if (event.key === "Alt" && !viewState.mac) { event.preventDefault(); apply({ type: "alt" }); labelFor(state.open)?.focus(); return; }
+  if (event.key === "Escape" && state.open !== null && !viewState.mac) api.escape();
   if (state.open === null) return;
   if (event.key === "Escape" || event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter") {
     event.preventDefault(); apply({ type: event.key });

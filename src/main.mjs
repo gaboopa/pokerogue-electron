@@ -1,6 +1,7 @@
 import { app, BrowserWindow, WebContentsView, dialog, Menu, protocol, session, shell, ipcMain } from "electron";
 // Namespace import: the test shims for "electron" do not export clipboard.
 import * as electron from "electron";
+const { screen } = electron;
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,7 +21,7 @@ import { createMenuTemplate } from "./menu.mjs";
 import { clearTerminalIntent, createIntent, prepareResumeIntent, readCurrentIntent, recoverStaleIntentLock, revalidateResumingUpdate, transitionIntent } from "./backup-coordinator.mjs";
 import { formatDiagnosticReport, summarizeBackups } from "./diagnostics.mjs";
 import { showThemedMessageBox } from "./dialog-main.mjs";
-import { activateMenuItem, calculateViewBounds, serializeMenuTemplate, trackLoneAlt } from "./window-bar.mjs";
+import { activateMenuItem, calculateViewBounds, serializeMenuTemplate, trackLoneAlt, transitionFullscreenReveal } from "./window-bar.mjs";
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, stream: true } }]);
 app.setName(PRODUCT_NAME);
@@ -33,6 +34,8 @@ let gameView;
 let barView;
 let mainMenuTemplate = [];
 let menuOpen = false;
+let fullscreenReveal = { revealed: false, belowSince: null };
+let fullscreenPointerInterval;
 let barMaximized;
 let keymapMtime = 0;
 const chartWindows = new Map();
@@ -62,10 +65,31 @@ function updateMainViewLayout() {
   const window = getLiveMainWindow();
   if (!window || !gameView || !barView) return;
   const [width, height] = window.getContentSize();
-  const layout = calculateViewBounds(width, height, window.isFullScreen(), menuOpen);
+  const layout = calculateViewBounds(width, height, window.isFullScreen(), menuOpen, fullscreenReveal.revealed);
   gameView.setBounds(layout.game);
   barView.setBounds(layout.bar);
   barView.setVisible(layout.barVisible);
+}
+
+function stopFullscreenPointerTracking() {
+  if (fullscreenPointerInterval) clearInterval(fullscreenPointerInterval);
+  fullscreenPointerInterval = undefined;
+}
+
+function updateFullscreenPointerTracking(window) {
+  stopFullscreenPointerTracking();
+  if (process.platform === "darwin" || mainWindow !== window || window.isDestroyed() || !window.isFullScreen() || !window.isFocused()) return;
+  fullscreenPointerInterval = setInterval(() => {
+    if (mainWindow !== window || window.isDestroyed() || !window.isFullScreen() || !window.isFocused()) { stopFullscreenPointerTracking(); return; }
+    const bounds = window.getBounds();
+    const point = screen.getCursorScreenPoint();
+    const x = point.x - bounds.x, y = point.y - bounds.y;
+    const inside = x >= 0 && x < bounds.width && y >= 0 && y < bounds.height;
+    const next = transitionFullscreenReveal(fullscreenReveal, { type: "pointer", atTop: inside && y <= 4, belowBar: inside && y >= 48 }, Date.now(), menuOpen);
+    const wasRevealed = fullscreenReveal.revealed;
+    fullscreenReveal = next;
+    if (fullscreenReveal.revealed !== wasRevealed) updateMainViewLayout();
+  }, 50);
 }
 
 async function pushBarState() {
@@ -99,8 +123,9 @@ function registerBarIpc() {
     else if (result === "close") getLiveMainWindow()?.close();
     else if (result === "zoom") { const window = getLiveMainWindow(); if (window) window.isMaximized() ? window.unmaximize() : window.maximize(); }
   });
-  ipcMain.on("bar:menu-opened", event => { if (barView && event.sender.id === barView.webContents.id) { menuOpen = true; barView.webContents.focus(); updateMainViewLayout(); } });
+  ipcMain.on("bar:menu-opened", event => { if (barView && event.sender.id === barView.webContents.id) { menuOpen = true; fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "menu-open" }, Date.now()); barView.webContents.focus(); updateMainViewLayout(); } });
   ipcMain.on("bar:menu-closed", event => { if (barView && event.sender.id === barView.webContents.id) { menuOpen = false; updateMainViewLayout(); getGameWebContents()?.focus(); } });
+  ipcMain.on("bar:escape", event => { if (barView && event.sender.id === barView.webContents.id && getLiveMainWindow()?.isFullScreen()) { menuOpen = false; fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "escape" }, Date.now()); updateMainViewLayout(); getGameWebContents()?.focus(); } });
   ipcMain.on("bar:minimize", event => { if (barView && event.sender.id === barView.webContents.id) getLiveMainWindow()?.minimize(); });
   ipcMain.on("bar:toggle-maximize", event => { if (!barView || event.sender.id !== barView.webContents.id) return; const window = getLiveMainWindow(); if (window) window.isMaximized() ? window.unmaximize() : window.maximize(); });
   ipcMain.on("bar:close", event => { if (barView && event.sender.id === barView.webContents.id) getLiveMainWindow()?.close(); });
@@ -860,6 +885,7 @@ async function createWindow() {
   });
   mainWindow = window;
   menuOpen = false;
+  fullscreenReveal = { revealed: false, belowSince: null };
   if (!isMac) window.setMenuBarVisibility(false);
   gameView = new WebContentsView({ webPreferences: { preload: join(moduleRoot, "src", "preload-cheats.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
   barView = new WebContentsView({ webPreferences: { preload: join(moduleRoot, "src", "bar-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
@@ -876,10 +902,19 @@ async function createWindow() {
     const alt = trackLoneAlt(loneAltPending, input);
     loneAltPending = alt.pending;
     if (alt.activate) {
+      if (window.isFullScreen()) {
+        fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "alt" }, Date.now(), menuOpen);
+        updateMainViewLayout();
+        if (!fullscreenReveal.revealed) return;
+      }
       event.preventDefault();
       barView.webContents.focus();
       barView.webContents.send("bar:state", { openMenu: true });
       return;
+    }
+    if (window.isFullScreen() && input.type === "keyDown" && input.key === "Escape") {
+      fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "escape" }, Date.now(), menuOpen);
+      updateMainViewLayout();
     }
     if (input.type !== "keyDown" || input.control || input.meta || input.alt) return;
     if (input.key === "F5") { event.preventDefault(); if (mainWindow === window && !window.isDestroyed()) gameContents.reload(); }
@@ -891,16 +926,24 @@ async function createWindow() {
     if (mainWindow === window && !window.isDestroyed()) window.show();
     void pushBarState();
   });
-  for (const event of ["resize", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"]) window.on(event, () => { updateMainViewLayout(); pushMaximizedState(); });
+  for (const event of ["resize", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"]) window.on(event, () => {
+    if (event === "leave-full-screen") fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "leave-fullscreen" }, Date.now());
+    updateFullscreenPointerTracking(window);
+    updateMainViewLayout(); pushMaximizedState();
+  });
+  window.on("blur", stopFullscreenPointerTracking);
   window.on("focus", async () => {
     if (mainWindow !== window || window.isDestroyed()) return;
+    updateFullscreenPointerTracking(window);
     try { if (await keymapModifiedAt(paths().keymap) !== keymapMtime && mainWindow === window && !window.isDestroyed()) await reloadKeybindings(window); }
     catch (error) { console.warn(`Could not refresh keybindings: ${error.message}`); }
   });
   window.on("closed", () => {
+    stopFullscreenPointerTracking();
     if (mainWindow === window) { mainWindow = undefined; gameView = undefined; barView = undefined; }
   });
   try {
+    updateFullscreenPointerTracking(window);
     updateMainViewLayout();
     await Promise.all([gameContents.loadURL(`${APP_ORIGIN}/index.html`), barView.webContents.loadFile(join(moduleRoot, "src", "bar-window", "index.html"))]);
   } catch (error) {

@@ -39,14 +39,28 @@ export function serializeMenuTemplate(template, platform = process.platform) {
   }));
 }
 
-export function calculateViewBounds(width, height, fullScreen, menuOpen) {
-  if (fullScreen) return { bar: { x: 0, y: 0, width, height: 0 }, game: { x: 0, y: 0, width, height }, barVisible: false };
+export function calculateViewBounds(width, height, fullScreen, menuOpen, revealed = false) {
+  if (fullScreen) return { bar: { x: 0, y: 0, width, height: revealed ? (menuOpen ? height : 48) : 0 }, game: { x: 0, y: 0, width, height }, barVisible: revealed };
   const barHeight = menuOpen ? height : 48;
   return {
     bar: { x: 0, y: 0, width, height: barHeight },
     game: { x: 0, y: 48, width, height: Math.max(0, height - 48) },
     barVisible: true,
   };
+}
+
+export function transitionFullscreenReveal(state, action, now, menuOpen = false) {
+  if (action.type === "leave-fullscreen") return { revealed: false, belowSince: null };
+  if (action.type === "menu-open") return { revealed: true, belowSince: null };
+  if (action.type === "alt") return menuOpen ? state : { revealed: !state.revealed, belowSince: null };
+  if (action.type === "escape") return menuOpen ? state : { revealed: false, belowSince: null };
+  if (action.type === "pointer") {
+    if (action.atTop) return { revealed: true, belowSince: null };
+    if (!state.revealed || menuOpen || !action.belowBar) return { ...state, belowSince: null };
+    const belowSince = state.belowSince ?? now;
+    return now - belowSince >= 600 ? { revealed: false, belowSince: null } : { ...state, belowSince };
+  }
+  return state;
 }
 
 export function activateMenuItem({ template, id, senderId, barId }) {
