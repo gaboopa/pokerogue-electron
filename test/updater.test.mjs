@@ -6,6 +6,7 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { compareVersions, downloadVerified, validateReleaseManifest } from "../src/updater.mjs";
+import { currentUpdateStep, formatUpdateProgress } from "../src/update-window/progress.mjs";
 import { assertAllowedUrl } from "../src/release-contract.mjs";
 
 const digest = value => createHash("sha256").update(value).digest("hex");
@@ -184,6 +185,44 @@ test("a stalled download rejects with the stall message and leaves no partial", 
     await assert.rejects(downloadVerified(artifact("AAAABBBB"), root, { stallTimeoutMs: 50 }), /Update download stalled: no data received for 0\.05 seconds/);
     assert.deepEqual(await partialFiles(root), []);
   });
+});
+
+test("an aborted download rejects as cancelled and leaves no file", async () => {
+  await withDownloadRoot(async (root, setFetch) => {
+    const controller = new AbortController();
+    let requestStarted;
+    const started = new Promise(resolve => { requestStarted = resolve; });
+    setFetch(async (_request, init) => new Response(new ReadableStream({
+      start(stream) {
+        stream.enqueue(Buffer.from("AAAA"));
+        requestStarted();
+        init.signal.addEventListener("abort", () => stream.error(init.signal.reason));
+      },
+    })));
+    const download = downloadVerified(artifact("AAAABBBB"), root, { signal: controller.signal });
+    await started;
+    controller.abort();
+    await assert.rejects(download, error => error.code === "UPDATE_CANCELLED");
+    assert.deepEqual(await readdir(root), []);
+  });
+});
+
+test("an already-aborted download makes no request", async () => {
+  await withDownloadRoot(async (root, setFetch) => {
+    const controller = new AbortController();
+    controller.abort();
+    let requests = 0;
+    setFetch(async () => { requests++; return responseFor("AAAABBBB"); });
+    await assert.rejects(downloadVerified(artifact("AAAABBBB"), root, { signal: controller.signal }), error => error.code === "UPDATE_CANCELLED");
+    assert.equal(requests, 0);
+    assert.deepEqual(await readdir(root), []);
+  });
+});
+
+test("update progress formatting and current step follow received bytes", () => {
+  assert.deepEqual(formatUpdateProgress(58_000_000, 94_000_000), { percent: 62, size: "58 / 94 MB" });
+  assert.equal(currentUpdateStep({ received: 58, total: 94 }), 0);
+  assert.equal(currentUpdateStep({ received: 94, total: 94 }), 1);
 });
 
 test("progress reports increasing byte counts ending at the full size", async () => {

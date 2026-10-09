@@ -2,7 +2,7 @@ import { transitionMenu } from "./menu-state.mjs";
 
 const api = window.windowBar;
 const bar = document.getElementById("bar"), nav = document.getElementById("menus"), dropdown = document.getElementById("dropdown");
-let state = { menus: [], open: null, activeItem: null }, viewState = { profileName: null, cheatsEnabled: false, mac: false }, pendingAlt = false;
+let state = { menus: [], open: null, activeItem: null }, viewState = { profileName: null, cheatsEnabled: false, mac: false, update: null }, pendingAlt = false;
 const widths = { Game: 360, Saves: 320, View: 380, Tools: 460, Cheats: 320, Profiles: 300 };
 
 function menuIndex(id) { return state.menus.findIndex(menu => menu.id === id); }
@@ -71,13 +71,21 @@ api.receiveState(next => {
   document.getElementById("profile").textContent = viewState.profileName ?? "";
   document.getElementById("profile").title = viewState.profileName ?? "";
   document.getElementById("cheats").hidden = !viewState.cheatsEnabled;
+  const update = document.getElementById("update");
+  update.hidden = !viewState.update;
+  if (viewState.update) {
+    const percent = Math.round(viewState.update.received / viewState.update.total * 100);
+    document.getElementById("update-version").textContent = viewState.update.version;
+    document.getElementById("update-fill").style.width = `${percent}%`;
+    update.setAttribute("aria-label", `Update ${viewState.update.version}: ${percent}%`);
+  }
   document.querySelector(".mac-title")?.remove();
   if (viewState.mac) { const title = document.createElement("div"); title.className = "mac-title"; title.textContent = "PokeRogue Electron"; bar.append(title); }
   if ("menus" in next) apply({ type: "state-push", menus: next.menus });
   if (next.openMenu) { pendingAlt = state.menus.length === 0; if (!pendingAlt) apply({ type: "alt" }); }
   else if (pendingAlt && state.menus.length) { pendingAlt = false; apply({ type: "alt" }); }
 });
-bar.addEventListener("click", event => { const action = event.target.closest("button")?.dataset.action; if (action === "minimize") api.minimize(); if (action === "maximize") api.toggleMaximize(); if (action === "close") api.close(); });
+bar.addEventListener("click", event => { const button = event.target.closest("button"); const action = button?.dataset.action; if (button?.id === "update") api.openUpdate(); if (action === "minimize") api.minimize(); if (action === "maximize") api.toggleMaximize(); if (action === "close") api.close(); });
 document.addEventListener("pointerdown", event => { if (state.open !== null && !dropdown.contains(event.target) && !nav.contains(event.target)) apply({ type: "outside" }); });
 document.addEventListener("keydown", event => {
   if (event.key === "Alt" && !viewState.mac) { event.preventDefault(); apply({ type: "alt" }); labelFor(state.open)?.focus(); return; }
