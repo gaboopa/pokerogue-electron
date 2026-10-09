@@ -51,3 +51,7 @@ Reopening the window after the restart, or showing the Backup and installer step
 ## Stop conditions
 
 Stop and report if cancelling would need a change to how verification, the allowlist or the cold Backup request work, or if a partial file could be left behind.
+
+## Assets
+
+`src/assets/ui/` is ignored by git and may be absent in your worktree, and `staging/` always is. That is expected and is not a stop condition. Do not add tests that need those files, and leave the folder alone if it is present.

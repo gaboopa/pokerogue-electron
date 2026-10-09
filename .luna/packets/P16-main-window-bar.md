@@ -10,6 +10,10 @@ The main window becomes frameless with a 48px pixel title bar above the game. On
 
 `AGENTS.md`, `CONTEXT.md`, `docs/design/wrapper-ui/README.md` (screens 1 and 2, "State", the Addendum), `docs/design/wrapper-ui/mock.dc.html` (sections `Main window`, `Title bar states`, `Menus`), `src/ui/theme.css`, `src/main.mjs` (`createWindow`, `createMenu`, `getLiveMainWindow`, every use of `mainWindow` and `.webContents`), `src/menu.mjs`, `src/preload-cheats.cjs`, `src/cheats.mjs` (`loadCheatDocument`), `test/window-lifecycle.test.mjs`, `test/startup-recovery.test.mjs`.
 
+## Assets
+
+`src/assets/ui/` (font, `window_1.png`, `window_3.png`, `cursor.png`, `logo128.png`) is ignored by git and is filled when the game is staged, so it may be absent in your worktree, and `staging/` always is. That is expected and is not a stop condition. Reference the files by relative path as `src/ui/theme.css` does, keep the bar usable without them (fallback font, no logo image, plain borders), and do not add tests that need them to exist. If the folder is present, leave it alone.
+
 ## Design (decided; do not substitute another)
 
 - The main window hosts two `WebContentsView`s: the **game view** (the game at `app://game/index.html`, with today's preload and `webPreferences`) and, above it in z-order, the **bar view** (`src/bar-window/`, its own preload, same sandbox settings, transparent background).

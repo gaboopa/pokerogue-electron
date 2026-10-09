@@ -36,3 +36,7 @@ Animation. Any change outside full screen. macOS. Changes to `src/preload-cheats
 Stop and report if this cannot be done without changing the game's preload or intercepting game keys.
 
 In your final report, list what needs a running app to confirm (pointer detection on a second monitor and at display scaling other than 100%, Alt behaviour) as **pending manual check**.
+
+## Assets
+
+`src/assets/ui/` is ignored by git and may be absent in your worktree, and `staging/` always is. That is expected and is not a stop condition. Do not add tests that need those files, and leave the folder alone if it is present.
