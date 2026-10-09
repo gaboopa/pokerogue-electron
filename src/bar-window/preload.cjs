@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld("windowBar", {
   activateItem: id => ipcRenderer.send("bar:activate", id),
   menuOpened: () => ipcRenderer.send("bar:menu-opened"),
   menuClosed: () => ipcRenderer.send("bar:menu-closed"),
+  escape: () => ipcRenderer.send("bar:escape"),
   minimize: () => ipcRenderer.send("bar:minimize"),
   toggleMaximize: () => ipcRenderer.send("bar:toggle-maximize"),
   close: () => ipcRenderer.send("bar:close"),
