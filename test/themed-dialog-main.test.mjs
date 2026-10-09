@@ -17,7 +17,7 @@ test("themed dialogs validate replies and resolve independently when closed", as
       export const ipcMain = { handle(name, fn) { state.handlers[name] = fn; }, on(name, fn) { state.listeners[name] = fn; } };
       export const screen = { getDisplayMatching() { return { workAreaSize: { height: 900 } }; } };
       export class BrowserWindow {
-        constructor(options) { this.options = options; this.destroyed = false; this.shown = false; this.contents = { id: state.windows.length + 1, setWindowOpenHandler(fn) { this.openHandler = fn; }, on(name, fn) { this.listeners ??= {}; this.listeners[name] = fn; }, emit(name, ...args) { this.listeners?.[name]?.(...args); } }; this.handlers = {}; this.onceHandlers = {}; state.windows.push(this); }
+        constructor(options) { this.options = options; this.destroyed = false; this.shown = false; this.contents = { id: state.windows.length + 1, setWindowOpenHandler(fn) { this.openHandler = fn; }, on(name, fn) { this.listeners ??= {}; this.listeners[name] = fn; }, send(name, ...args) { this.sent ??= []; this.sent.push([name, ...args]); }, emit(name, ...args) { this.listeners?.[name]?.(...args); } }; this.handlers = {}; this.onceHandlers = {}; state.windows.push(this); }
         get webContents() { if (this.destroyed) throw new Error("webContents accessed after destruction"); return this.contents; }
         isDestroyed() { return this.destroyed; } isVisible() { return this.shown; }
         on(name, fn) { this.handlers[name] = fn; } once(name, fn) { this.onceHandlers[name] = fn; }
@@ -88,6 +88,10 @@ test("themed dialogs validate replies and resolve independently when closed", as
       parentDestroyed = true;
       globalThis.__dialogTest.listeners["dialog:resize"]({ sender: resizedWindow.webContents }, 200);
       assert.deepEqual(resizedWindow.size, [560, 200]);
+      assert.deepEqual(resizedWindow.webContents.sent.at(-1), ["dialog:resized", { capped: false }]);
+      globalThis.__dialogTest.listeners["dialog:resize"]({ sender: resizedWindow.webContents }, 901);
+      assert.deepEqual(resizedWindow.size, [560, 900]);
+      assert.deepEqual(resizedWindow.webContents.sent.at(-1), ["dialog:resized", { capped: true }]);
       resizedWindow.close();
       assert.deepEqual(await resized, { response: 0 });
     `);
