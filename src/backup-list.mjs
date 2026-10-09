@@ -3,8 +3,6 @@ import { isAbsolute, join, resolve } from "node:path";
 import { isDirectChild } from "./backup.mjs";
 import { parseBackupName } from "./backup-coordinator.mjs";
 
-const operationReasons = { manual: "manual", update: "update", restore: "restore", cheat: "cheat" };
-
 export async function listBackups(backupRoot, fs = { readdir, readFile }) {
   let entries;
   try { entries = await fs.readdir(backupRoot, { withFileTypes: true }); }
@@ -14,7 +12,7 @@ export async function listBackups(backupRoot, fs = { readdir, readFile }) {
     if (entry.name.startsWith(".") || !entry.isDirectory()) continue;
     const parsed = parseBackupName(entry.name);
     let createdAt = parsed ? parsed.stamp.replace(/T(\d{2})-(\d{2})-(\d{2})/, "T$1:$2:$3") : "";
-    let reason = parsed ? operationReasons[parsed.operation] : "unknown";
+    let reason = parsed ? parsed.operation : "unknown";
     if (!parsed) {
       try {
         const manifest = JSON.parse(await fs.readFile(join(backupRoot, entry.name, "manifest.json"), "utf8"));
