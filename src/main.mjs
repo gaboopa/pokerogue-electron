@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, protocol, session, shell } from "electron";
+import { app, BrowserWindow, WebContentsView, dialog, Menu, protocol, session, shell, ipcMain } from "electron";
 // Namespace import: the test shims for "electron" do not export clipboard.
 import * as electron from "electron";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { APP_ORIGIN, AUTOMATIC_BACKUPS_KEPT, BACKUP_TOKEN_PATTERN, PRODUCT_NAME, UPDATE_REPOSITORY } from "./constants.mjs";
 import { offerOldInstallers, pruneAutomaticBackups, pruneUpdateDownloads } from "./retention.mjs";
 import { BackupRestoreError, restoreBackup, validateBackup } from "./backup.mjs";
-import { applyCheatConfiguration } from "./cheats.mjs";
+import { applyCheatConfiguration, loadCheatDocument } from "./cheats.mjs";
 import { createCheatController } from "./cheat-main.mjs";
 import { createBackupController } from "./backup-main.mjs";
 import { assertValidProfileName, createProfile, listProfiles, setActiveProfile } from "./profiles.mjs";
@@ -20,6 +20,7 @@ import { createMenuTemplate } from "./menu.mjs";
 import { clearTerminalIntent, createIntent, prepareResumeIntent, readCurrentIntent, recoverStaleIntentLock, revalidateResumingUpdate, transitionIntent } from "./backup-coordinator.mjs";
 import { formatDiagnosticReport, summarizeBackups } from "./diagnostics.mjs";
 import { showThemedMessageBox } from "./dialog-main.mjs";
+import { activateMenuItem, calculateViewBounds, serializeMenuTemplate, trackLoneAlt } from "./window-bar.mjs";
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, stream: true } }]);
 app.setName(PRODUCT_NAME);
@@ -28,6 +29,11 @@ const moduleRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const windowIcon = process.platform === "win32" ? join(moduleRoot, "build", "icon.ico") : undefined;
 const gameRoot = app.isPackaged ? join(process.resourcesPath, "game") : join(moduleRoot, "staging", "game");
 let mainWindow;
+let gameView;
+let barView;
+let mainMenuTemplate = [];
+let menuOpen = false;
+let barMaximized;
 let keymapMtime = 0;
 const chartWindows = new Map();
 let cheatController;
@@ -43,6 +49,58 @@ function getLiveMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
   mainWindow = undefined;
   return undefined;
+}
+
+function getGameWebContents() {
+  return getLiveMainWindow() && gameView ? gameView.webContents : undefined;
+}
+
+function updateMainViewLayout() {
+  const window = getLiveMainWindow();
+  if (!window || !gameView || !barView) return;
+  const [width, height] = window.getContentSize();
+  const layout = calculateViewBounds(width, height, window.isFullScreen(), menuOpen);
+  gameView.setBounds(layout.game);
+  barView.setBounds(layout.bar);
+  barView.setVisible(layout.barVisible);
+}
+
+async function pushBarState() {
+  if (!barView || barView.webContents.isDestroyed()) return;
+  const profileName = globalThis[Symbol.for("pokerogue.profile-context")]?.name ?? null;
+  try {
+    const document = await loadCheatDocument(paths().cheats);
+    if (!barView || barView.webContents.isDestroyed()) return;
+    barMaximized = getLiveMainWindow()?.isMaximized() ?? false;
+    barView.webContents.send("bar:state", {
+      menus: serializeMenuTemplate(mainMenuTemplate, process.platform), profileName,
+      cheatsEnabled: document.config.enabled, mac: process.platform === "darwin", maximized: barMaximized,
+    });
+  } catch (error) { console.error(`Could not load cheat status for title bar: ${error.message}`); }
+}
+
+function pushMaximizedState() {
+  if (!barView || barView.webContents.isDestroyed()) return;
+  const maximized = getLiveMainWindow()?.isMaximized() ?? false;
+  if (maximized === barMaximized) return;
+  barMaximized = maximized;
+  barView.webContents.send("bar:state", { maximized });
+}
+
+function registerBarIpc() {
+  ipcMain.on("bar:activate", (event, id) => {
+    if (!barView || event.sender.id !== barView.webContents.id) return;
+    const result = activateMenuItem({ template: mainMenuTemplate, id, senderId: event.sender.id, barId: barView.webContents.id });
+    if (result === "quit") app.quit();
+    else if (result === "minimize") getLiveMainWindow()?.minimize();
+    else if (result === "close") getLiveMainWindow()?.close();
+    else if (result === "zoom") { const window = getLiveMainWindow(); if (window) window.isMaximized() ? window.unmaximize() : window.maximize(); }
+  });
+  ipcMain.on("bar:menu-opened", event => { if (barView && event.sender.id === barView.webContents.id) { menuOpen = true; barView.webContents.focus(); updateMainViewLayout(); } });
+  ipcMain.on("bar:menu-closed", event => { if (barView && event.sender.id === barView.webContents.id) { menuOpen = false; updateMainViewLayout(); getGameWebContents()?.focus(); } });
+  ipcMain.on("bar:minimize", event => { if (barView && event.sender.id === barView.webContents.id) getLiveMainWindow()?.minimize(); });
+  ipcMain.on("bar:toggle-maximize", event => { if (!barView || event.sender.id !== barView.webContents.id) return; const window = getLiveMainWindow(); if (window) window.isMaximized() ? window.unmaximize() : window.maximize(); });
+  ipcMain.on("bar:close", event => { if (barView && event.sender.id === barView.webContents.id) getLiveMainWindow()?.close(); });
 }
 
 function showMessageBox(options, parent = getLiveMainWindow()) {
@@ -140,7 +198,7 @@ function showProfileBusy() {
 
 async function flushAndRestartForProfile() {
   const window = getLiveMainWindow();
-  if (window) await window.webContents.session.flushStorageData();
+  if (window) await getGameWebContents()?.session.flushStorageData();
   app.relaunch();
   app.quit();
 }
@@ -175,7 +233,7 @@ async function reloadKeybindings(expectedWindow = getLiveMainWindow()) {
     keymapMtime = modifiedAt;
   } else if (mainWindow === expectedWindow && !expectedWindow.isDestroyed()) {
     keymapMtime = modifiedAt;
-    expectedWindow.webContents.send("keybindings:update", mappings);
+    getGameWebContents()?.send("keybindings:update", mappings);
   }
   return mappings;
 }
@@ -263,7 +321,7 @@ async function requestColdBackup(operation, payload, reserved = false) {
     let intent;
     try {
       const window = getLiveMainWindow();
-      if (window) await window.webContents.session.flushStorageData();
+      if (window) await getGameWebContents()?.session.flushStorageData();
       intent = await createIntent({ userData: paths().userData, operation, payload });
       startupRestarting = true;
       let quitReached = false;
@@ -712,7 +770,7 @@ function createMenu() {
   const utilities = createUtilitiesSubmenu({ openExternal: openExternalUtility, openChart: toggleChartWindow });
   const cheats = [{ label: "Configure Cheats…", click: () => cheatController.openWindow() }];
   const profileContext = globalThis[Symbol.for("pokerogue.profile-context")];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(createMenuTemplate({
+  mainMenuTemplate = createMenuTemplate({
     isMac,
     productName: PRODUCT_NAME,
     onCheckForUpdates: performUpdateCheck,
@@ -720,9 +778,9 @@ function createMenu() {
     onRestore: () => backupController.openWindow(),
     onOpenSaveFolder: () => shell.openPath(paths().userData),
     onCopyDiagnosticReport: () => { void copyDiagnosticReport(); },
-    onReload: () => getLiveMainWindow()?.reload(),
+    onReload: () => getGameWebContents()?.reload(),
     onToggleFullscreen: () => { const window = getLiveMainWindow(); if (window) window.setFullScreen(!window.isFullScreen()); },
-    onDeveloperTools: () => getLiveMainWindow()?.webContents.toggleDevTools(),
+    onDeveloperTools: () => getGameWebContents()?.toggleDevTools(),
     utilities,
     keybindings,
     cheats,
@@ -730,46 +788,73 @@ function createMenu() {
     activeProfile: profileContext?.name ?? null,
     onSelectProfile: name => { void switchProfile(name).catch(error => { createMenu(); showErrorBox("Profile switch failed", error.message); }); },
     onNewProfile: () => profileController.openWindow(),
-  })));
+  });
+  serializeMenuTemplate(mainMenuTemplate, process.platform);
+  Menu.setApplicationMenu(Menu.buildFromTemplate(mainMenuTemplate));
+  pushBarState();
 }
 
 async function createWindow() {
+  const isMac = process.platform === "darwin";
+  const profileName = globalThis[Symbol.for("pokerogue.profile-context")]?.name ?? null;
   const window = new BrowserWindow({
     width: 1280, height: 800, minWidth: 800, minHeight: 600, backgroundColor: "#000000", show: false,
+    ...(isMac ? { titleBarStyle: "hidden", trafficLightPosition: { x: 20, y: 18 } } : { frame: false }),
+    autoHideMenuBar: !isMac,
+    title: `${PRODUCT_NAME}${profileName ? ` — ${profileName}` : ""}`,
     ...(windowIcon ? { icon: windowIcon } : {}),
-    webPreferences: { preload: join(moduleRoot, "src", "preload-cheats.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
   });
   mainWindow = window;
-  const activeProfile = globalThis[Symbol.for("pokerogue.profile-context")]?.name;
-  if (activeProfile) {
-    window.setTitle(`${PRODUCT_NAME} — ${activeProfile}`);
-    window.webContents.on("page-title-updated", event => event.preventDefault());
-  }
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.webContents.on("will-navigate", (event, url) => { if (!url.startsWith(`${APP_ORIGIN}/`)) event.preventDefault(); });
-  window.webContents.on("before-input-event", (event, input) => {
+  menuOpen = false;
+  if (!isMac) window.setMenuBarVisibility(false);
+  gameView = new WebContentsView({ webPreferences: { preload: join(moduleRoot, "src", "preload-cheats.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
+  barView = new WebContentsView({ webPreferences: { preload: join(moduleRoot, "src", "bar-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
+  barView.setBackgroundColor("#00000000");
+  window.contentView.addChildView(gameView);
+  window.contentView.addChildView(barView);
+  const gameContents = gameView.webContents;
+  gameContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  gameContents.on("will-navigate", (event, url) => { if (!url.startsWith(`${APP_ORIGIN}/`)) event.preventDefault(); });
+  barView.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  barView.webContents.on("will-navigate", event => event.preventDefault());
+  let loneAltPending = false;
+  gameContents.on("before-input-event", (event, input) => {
+    const alt = trackLoneAlt(loneAltPending, input);
+    loneAltPending = alt.pending;
+    if (alt.activate) {
+      event.preventDefault();
+      barView.webContents.focus();
+      barView.webContents.send("bar:state", { openMenu: true });
+      return;
+    }
     if (input.type !== "keyDown" || input.control || input.meta || input.alt) return;
-    if (input.key === "F5") { event.preventDefault(); if (mainWindow === window && !window.isDestroyed()) window.reload(); }
+    if (input.key === "F5") { event.preventDefault(); if (mainWindow === window && !window.isDestroyed()) gameContents.reload(); }
   });
-  window.webContents.on("did-finish-load", () => {
+  gameContents.on("did-finish-load", () => {
     if (mainWindow === window && !window.isDestroyed()) void reloadKeybindings(window);
   });
+  barView.webContents.on("did-finish-load", () => {
+    if (mainWindow === window && !window.isDestroyed()) window.show();
+    void pushBarState();
+  });
+  for (const event of ["resize", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"]) window.on(event, () => { updateMainViewLayout(); pushMaximizedState(); });
   window.on("focus", async () => {
     if (mainWindow !== window || window.isDestroyed()) return;
     try { if (await keymapModifiedAt(paths().keymap) !== keymapMtime && mainWindow === window && !window.isDestroyed()) await reloadKeybindings(window); }
     catch (error) { console.warn(`Could not refresh keybindings: ${error.message}`); }
   });
-  window.once("ready-to-show", () => {
-    if (mainWindow === window && !window.isDestroyed()) window.show();
-  });
   window.on("closed", () => {
-    if (mainWindow === window) mainWindow = undefined;
+    if (mainWindow === window) { mainWindow = undefined; gameView = undefined; barView = undefined; }
   });
   try {
-    await window.loadURL(`${APP_ORIGIN}/index.html`);
+    updateMainViewLayout();
+    await Promise.all([gameContents.loadURL(`${APP_ORIGIN}/index.html`), barView.webContents.loadFile(join(moduleRoot, "src", "bar-window", "index.html"))]);
   } catch (error) {
     if (window.isDestroyed() || mainWindow !== window) return;
     mainWindow = undefined;
+    gameView = undefined;
+    barView = undefined;
     window.destroy();
     showErrorBox("Could not load game", error.message);
   }
@@ -833,6 +918,7 @@ app.whenReady().then(async () => {
   if (startupRecoveryBlocked || startupRestarting) return;
   await pruneStaleFiles();
   await reloadKeybindings();
+  registerBarIpc();
   registerGameProtocol(protocol, gameRoot);
   installNetworkPolicy();
   cheatController = createCheatController({
@@ -844,7 +930,7 @@ app.whenReady().then(async () => {
       if (requested.busy) throw new Error("Another Backup continuation is already in progress.");
       throw new Error(requested.error ?? "The cold Backup could not be started.");
     },
-    relaunch: async () => { app.relaunch(); app.quit(); },
+    relaunch: async () => { await pushBarState(); app.relaunch(); app.quit(); },
   });
   cheatController.registerIpc();
   profileController = createProfileController({
