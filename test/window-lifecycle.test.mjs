@@ -64,13 +64,14 @@ async function createHarness() {
       async loadFile(path) { this.owner.file = path; }
     }
     export class BrowserWindow {
-      constructor(options) { this.id = state.instances.length + 1; this.options = options; this.role = options.title === "Backups" ? "backups" : options.width === 1280 ? "game" : options.width === 800 ? "editor" : "chart"; this.destroyed = false; this.visible = false; this.handlers = makeEventMap(); this.onceHandlers = makeEventMap(); this.webContents = new Contents(this); this.reloads = 0; this.shows = 0; this.hides = 0; this.focuses = 0; this.fullscreen = false; this.maximized = false; this.sent = 0; this.devtools = 0; this.childViews = []; this.contentView = { addChildView: view => { view.role = this.childViews.length ? "bar-view" : "game-view"; view.host = this; this.childViews.push(view); if (view.role === "game-view") this.gameView = view; if (view.role === "bar-view") this.barView = view; } }; state.instances.push(this); state.events.push("window:" + this.role); }
+      constructor(options) { this.id = state.instances.length + 1; this.options = options; this.role = options.title === "Backups" ? "backups" : options.width === 1280 ? "game" : options.width === 1140 ? "editor" : "chart"; this.destroyed = false; this.visible = false; this.handlers = makeEventMap(); this.onceHandlers = makeEventMap(); this.webContents = new Contents(this); this.reloads = 0; this.shows = 0; this.hides = 0; this.focuses = 0; this.fullscreen = false; this.maximized = false; this.sent = 0; this.devtools = 0; this.childViews = []; this.contentView = { addChildView: view => { view.role = this.childViews.length ? "bar-view" : "game-view"; view.host = this; this.childViews.push(view); if (view.role === "game-view") this.gameView = view; if (view.role === "bar-view") this.barView = view; } }; state.instances.push(this); state.events.push("window:" + this.role); }
       static getAllWindows() { return state.instances.filter(window => !window.destroyed); }
       isDestroyed() { return this.destroyed; }
       isVisible() { return this.visible; }
       isFullScreen() { return this.fullscreen; }
       isMaximized() { return this.maximized; }
       getContentSize() { return [this.options.width, this.options.height]; }
+      getBounds() { return { x: 0, y: 0, width: this.options.width, height: this.options.height }; }
       on(name, callback) { const all = this.handlers.get(name) ?? []; all.push(callback); this.handlers.set(name, all); }
       once(name, callback) { const all = this.onceHandlers.get(name) ?? []; all.push(callback); this.onceHandlers.set(name, all); }
       emit(name, ...args) { for (const callback of this.handlers.get(name) ?? []) callback(...args); const once = this.onceHandlers.get(name) ?? []; this.onceHandlers.delete(name); for (const callback of once) callback(...args); if (name === "ready-to-show" && this.role === "game") this.barView?.webContents.emit("did-finish-load"); }
@@ -103,6 +104,7 @@ async function createHarness() {
     export const ipcMain = { handle(name, callback) { state.handlers ??= {}; state.handlers[name] = callback; }, on(name, callback) { state.handlers ??= {}; state.handlers[name] = callback; } };
     export const Menu = { buildFromTemplate(value) { return value; }, setApplicationMenu(value) { state.menu = value; } };
     export const protocol = { registerSchemesAsPrivileged() {}, handle() {} };
+    export const screen = { getDisplayMatching() { return { workAreaSize: { width: 1920, height: 1080 } }; } };
     export const session = { defaultSession: { webRequest: { onBeforeRequest() {} }, setPermissionRequestHandler() {} } };
     export const shell = { async openPath(path) { state.opened.push(path); return ""; }, async openExternal() {} };`);
   await writeFile(backup, `export class BackupRestoreError extends Error {}
@@ -134,6 +136,10 @@ async function createHarness() {
     await import(process.env.R06_MAIN_URL);
     const state = globalThis.__r06;
     await bounded(state.startupPromise, "startup");
+    if (process.env.R06_SCENARIO === "cheat-size-cases") {
+      const { cheatWindowSize } = await import(process.env.R06_CHEAT_MAIN_URL);
+      state.cheatWindowSizes = [cheatWindowSize({ width: 1920, height: 1080 }), cheatWindowSize({ width: 1920, height: 760 }), cheatWindowSize({ width: 1000, height: 1000 })];
+    }
     const findMenu = label => { const visit = items => { for (const item of items) { if (item.label === label) return item; if (item.submenu) { const found = visit(item.submenu); if (found) return found; } } }; return visit(state.menu); };
     const click = async label => { const item = findMenu(label); if (!item?.click) throw new Error("Menu action not found: " + label); return item.click(); };
     const games = () => state.instances.filter(window => window.role === "game" && !window.destroyed);
@@ -279,7 +285,7 @@ async function createHarness() {
       auxiliaryAlive: state.auxiliaryAlive, backupWindowSecure: state.backupWindowSecure, replacementShown: state.replacementShown, keyboardPrevented: state.keyboardPrevented,
       afterF5Reloads: state.afterF5Reloads, keyboardModifiedPrevented: state.keyboardModifiedPrevented, guardSnapshot: state.guardSnapshot,
       keymapRace: state.keymapRace, loadRecovery: state.loadRecovery,
-      coldSnapshot: state.coldSnapshot, prunes: state.prunes ?? [],
+      coldSnapshot: state.coldSnapshot, cheatWindowSizes: state.cheatWindowSizes, prunes: state.prunes ?? [],
     };
     await (await import("node:fs/promises")).writeFile(process.env.R06_RESULT, JSON.stringify(snapshot));`);
   return { root, bootstrap, runner };
@@ -297,7 +303,7 @@ async function launch(scenario) {
   }
   const result = spawnSync(process.execPath, ["--import", pathToFileURL(h.bootstrap).href, h.runner], {
     encoding: "utf8", timeout: 10000,
-    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SELECTED_BACKUP: ["restore-request", "restore-cancel", "restore-resume"].includes(scenario) ? selectedBackup : "", R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: scenario === "update-cancel" ? "[0]" : ["cold-request", "cold-veto", "cold-persist-failure", "update-request", "update-open", "update-tampered", "cheat-request", "cheat-veto", "restore-request"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "prune-journal" ? "unknown-operation" : scenario === "update-interrupted" ? "update-resuming" : scenario === "restore-resume" ? "restore-captured" : scenario === "restore-interrupted" ? "restore-resuming" : scenario === "cheat-resume" ? "cheat-captured" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "", R06_PRUNE_THROW: scenario === "prune-throws" ? "1" : "" },
+    env: { ...process.env, R06_MAIN_URL: pathToFileURL(join(repo, "src", "main.mjs")).href, R06_CHEAT_MAIN_URL: pathToFileURL(join(repo, "src", "cheat-main.mjs")).href, R06_APP_PATH: repo, R06_USER_DATA: userData, R06_RESULT: resultPath, R06_SELECTED_BACKUP: ["restore-request", "restore-cancel", "restore-resume"].includes(scenario) ? selectedBackup : "", R06_SCENARIO: scenario, R06_DELAY_KEYMAP: scenario === "keymap-race" ? "1" : "", R06_DIALOG_RESPONSES: scenario === "update-cancel" ? "[0]" : ["cold-request", "cold-veto", "cold-persist-failure", "update-request", "update-open", "update-tampered", "cheat-request", "cheat-veto", "restore-request"].includes(scenario) ? "[0]" : "[]", R06_INITIAL_INTENT: ["update-later", "update-open", "update-tampered"].includes(scenario) ? "update-captured" : scenario === "prune-journal" ? "unknown-operation" : scenario === "update-interrupted" ? "update-resuming" : scenario === "restore-resume" ? "restore-captured" : scenario === "restore-interrupted" ? "restore-resuming" : scenario === "cheat-resume" ? "cheat-captured" : "", R06_TAMPER: scenario === "update-tampered" ? "1" : "", R06_PRUNE_THROW: scenario === "prune-throws" ? "1" : "" },
   });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   return JSON.parse(await readFile(resultPath, "utf8"));
@@ -315,6 +321,15 @@ test("game, cheat editor, chart, and Backup windows use the secure web preferenc
   assert.deepEqual(state.views.find(view => view.role === "bar-view").webPreferences, securePreferences, "bar view");
   assert.match(state.views.find(view => view.role === "game-view").preload, /preload-cheats\.cjs$/);
   assert.match(state.views.find(view => view.role === "bar-view").preload, /bar-window[\\/]preload\.cjs$/);
+});
+
+test("cheat window sizing caps defaults and minimums to the work area", async () => {
+  const state = await launch("cheat-size-cases");
+  assert.deepEqual(state.cheatWindowSizes, [
+    { width: 1140, height: 880, minWidth: 1140, minHeight: 700 },
+    { width: 1140, height: 760, minWidth: 1140, minHeight: 700 },
+    { width: 1000, height: 880, minWidth: 1000, minHeight: 700 },
+  ]);
 });
 
 test("activation reopens one game window while chart and cheat editor survive, and stale callbacks cannot affect it", async () => {
