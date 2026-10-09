@@ -42,30 +42,38 @@ async function createHarness() {
     let rejectStartup;
     let stateResolveKeymapStarted;
     let stateReleaseKeymap;
-    const state = { listeners: {}, onceListeners: {}, instances: [], menu: [], dialogs: [], dialogParents: [], opened: [], events: [], relaunchSnapshots: [], quitSnapshots: [], flushes: 0, backups: 0, quits: 0, relaunches: 0, relaunchArgs: null, unhandled: [], dialogResponses: JSON.parse(process.env.R06_DIALOG_RESPONSES || "[]"), startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), keymapStarted: new Promise(resolve => { stateResolveKeymapStarted = resolve; }), keymapGate: new Promise(resolve => { stateReleaseKeymap = resolve; }) };
+    const state = { listeners: {}, onceListeners: {}, instances: [], views: [], menu: [], dialogs: [], dialogParents: [], opened: [], events: [], relaunchSnapshots: [], quitSnapshots: [], flushes: 0, backups: 0, quits: 0, relaunches: 0, relaunchArgs: null, unhandled: [], dialogResponses: JSON.parse(process.env.R06_DIALOG_RESPONSES || "[]"), startupPromise: new Promise((resolve, reject) => { resolveStartup = resolve; rejectStartup = reject; }), keymapStarted: new Promise(resolve => { stateResolveKeymapStarted = resolve; }), keymapGate: new Promise(resolve => { stateReleaseKeymap = resolve; }) };
     state.releaseKeymap = () => stateReleaseKeymap();
     state.signalKeymapStarted = () => stateResolveKeymapStarted();
     state.fireApp = (name, event = {}) => { const once = state.onceListeners[name] ?? []; delete state.onceListeners[name]; for (const callback of once) callback(event); const listener = state.listeners[name]; if (typeof listener === "function") listener(event); };
     process.on("unhandledRejection", error => state.unhandled.push(error.message));
     globalThis.__r06 = state;
     function makeEventMap() { return new Map(); }
+    let nextContentsId = 1;
     class Contents {
-      constructor(owner) { this.owner = owner; this.handlers = makeEventMap(); this.id = owner.id; this.session = { flushStorageData: async () => { state.flushes++; } }; }
+      constructor(owner) { this.owner = owner; this.handlers = makeEventMap(); this.id = nextContentsId++; this.session = { flushStorageData: async () => { state.flushes++; } }; }
       setWindowOpenHandler(handler) { this.windowOpenHandler = handler; }
       on(name, callback) { const all = this.handlers.get(name) ?? []; all.push(callback); this.handlers.set(name, all); }
       emit(name, ...args) { for (const callback of this.handlers.get(name) ?? []) callback(...args); }
-      send() { this.owner.sent++; }
-      toggleDevTools() { this.owner.devtools++; }
+      send(channel) { if (channel === "keybindings:update" && this.owner.role === "game-view") { this.owner.sent++; if (this.owner.host) this.owner.host.sent++; } }
+      toggleDevTools() { this.owner.devtools++; if (this.owner.role === "game-view" && this.owner.host) this.owner.host.devtools++; }
+      isDestroyed() { return this.owner.destroyed === true; }
+      focus() { this.owner.focuses++; }
+      reload() { this.owner.reloads++; if (this.owner.role === "game-view" && this.owner.host) this.owner.host.reloads++; }
+      async loadURL(url) { this.owner.url = url; state.urls ??= []; state.urls.push(url); if (state.rejectLoadFor === (this.owner.host?.id ?? this.owner.id)) return new Promise((resolve, reject) => { state.rejectLoad = reject; }); }
+      async loadFile(path) { this.owner.file = path; }
     }
     export class BrowserWindow {
-      constructor(options) { this.id = state.instances.length + 1; this.options = options; this.role = options.title === "Backups" ? "backups" : options.width === 1280 ? "game" : options.width === 800 ? "editor" : "chart"; this.destroyed = false; this.visible = false; this.handlers = makeEventMap(); this.onceHandlers = makeEventMap(); this.webContents = new Contents(this); this.reloads = 0; this.shows = 0; this.hides = 0; this.focuses = 0; this.fullscreen = false; this.sent = 0; this.devtools = 0; state.instances.push(this); state.events.push("window:" + this.role); }
+      constructor(options) { this.id = state.instances.length + 1; this.options = options; this.role = options.title === "Backups" ? "backups" : options.width === 1280 ? "game" : options.width === 800 ? "editor" : "chart"; this.destroyed = false; this.visible = false; this.handlers = makeEventMap(); this.onceHandlers = makeEventMap(); this.webContents = new Contents(this); this.reloads = 0; this.shows = 0; this.hides = 0; this.focuses = 0; this.fullscreen = false; this.maximized = false; this.sent = 0; this.devtools = 0; this.childViews = []; this.contentView = { addChildView: view => { view.role = this.childViews.length ? "bar-view" : "game-view"; view.host = this; this.childViews.push(view); if (view.role === "game-view") this.gameView = view; if (view.role === "bar-view") this.barView = view; } }; state.instances.push(this); state.events.push("window:" + this.role); }
       static getAllWindows() { return state.instances.filter(window => !window.destroyed); }
       isDestroyed() { return this.destroyed; }
       isVisible() { return this.visible; }
       isFullScreen() { return this.fullscreen; }
+      isMaximized() { return this.maximized; }
+      getContentSize() { return [this.options.width, this.options.height]; }
       on(name, callback) { const all = this.handlers.get(name) ?? []; all.push(callback); this.handlers.set(name, all); }
       once(name, callback) { const all = this.onceHandlers.get(name) ?? []; all.push(callback); this.onceHandlers.set(name, all); }
-      emit(name, ...args) { for (const callback of this.handlers.get(name) ?? []) callback(...args); const once = this.onceHandlers.get(name) ?? []; this.onceHandlers.delete(name); for (const callback of once) callback(...args); }
+      emit(name, ...args) { for (const callback of this.handlers.get(name) ?? []) callback(...args); const once = this.onceHandlers.get(name) ?? []; this.onceHandlers.delete(name); for (const callback of once) callback(...args); if (name === "ready-to-show" && this.role === "game") this.barView?.webContents.emit("did-finish-load"); }
       show() { this.shows++; this.visible = true; }
       hide() { this.hides++; this.visible = false; }
       focus() { this.focuses++; }
@@ -73,9 +81,14 @@ async function createHarness() {
       destroy() { this.close(); }
       reload() { this.reloads++; }
       setFullScreen(value) { this.fullscreen = value; }
+      setMenuBarVisibility() {}
       setProgressBar() {}
       async loadURL(url) { this.url = url; state.urls ??= []; state.urls.push(url); if (state.rejectLoadFor === this.id) return new Promise((resolve, reject) => { state.rejectLoad = reject; }); }
       async loadFile(path) { this.file = path; }
+    }
+    export class WebContentsView {
+      constructor(options) { this.id = state.views.length + 1; this.options = options; this.role = "pending-view"; this.destroyed = false; this.sent = 0; this.reloads = 0; this.focuses = 0; this.webContents = new Contents(this); this.setBounds = bounds => { this.bounds = bounds; }; this.setVisible = visible => { this.visible = visible; }; state.views.push(this); }
+      setBackgroundColor(color) { this.backgroundColor = color; }
     }
     export const app = {
       isPackaged: false, setName() {}, getAppPath() { return process.env.R06_APP_PATH; }, getPath(name) { return name === "appData" || name === "userData" || name === "sessionData" ? process.env.R06_USER_DATA : process.env.TEMP; }, getVersion() { return "test"; },
@@ -141,15 +154,15 @@ async function createHarness() {
       await bounded(replacement.loadURL ? Promise.resolve() : Promise.reject(new Error("replacement missing")), "replacement construction");
       state.listeners.activate();
       state.afterRepeatedActivation = games().length;
-      const before = { oldShows: game.shows, replacementShows: replacement.shows, oldReloads: game.reloads, replacementReloads: replacement.reloads };
+      const before = { oldShows: game.shows, replacementShows: replacement.shows, oldReloads: game.gameView.reloads, replacementReloads: replacement.gameView.reloads };
       game.emit("ready-to-show");
       game.emit("closed");
-      game.webContents.emit("before-input-event", { preventDefault() {} }, { type: "keyDown", key: "F5" });
+      game.gameView.webContents.emit("before-input-event", { preventDefault() {} }, { type: "keyDown", key: "F5" });
       game.emit("focus");
-      game.webContents.emit("did-finish-load");
+      game.gameView.webContents.emit("did-finish-load");
       state.listeners.activate();
       state.afterStaleCallbacks = games().length;
-      state.staleSnapshot = { before, oldShows: game.shows, replacementShows: replacement.shows, oldReloads: game.reloads, replacementReloads: replacement.reloads };
+      state.staleSnapshot = { before, oldShows: game.shows, replacementShows: replacement.shows, oldReloads: game.gameView.reloads, replacementReloads: replacement.gameView.reloads };
       state.auxiliaryAlive = !chart.destroyed && !editor.destroyed;
       state.backupWindowSecure = Object.fromEntries(["sandbox", "contextIsolation", "nodeIntegration", "webSecurity"].map(key => [key, backupWindow.options.webPreferences[key]]));
       replacement.emit("ready-to-show");
@@ -219,14 +232,14 @@ async function createHarness() {
       state.coldSnapshot = { current: state.coordinator.getCurrent(), transitions: state.coordinator.transitions, dialogs: state.dialogs, games: games().length };
     } else if (process.env.R06_SCENARIO === "keyboard") {
       let prevented = false;
-      game.webContents.emit("before-input-event", { preventDefault() { prevented = true; } }, { type: "keyDown", key: "F5" });
+      game.gameView.webContents.emit("before-input-event", { preventDefault() { prevented = true; } }, { type: "keyDown", key: "F5" });
       state.keyboardPrevented = prevented;
-      state.afterF5Reloads = game.reloads;
+      state.afterF5Reloads = game.gameView.reloads;
       prevented = false;
-      game.webContents.emit("before-input-event", { preventDefault() { prevented = true; } }, { type: "keyDown", key: "F5", control: true });
+      game.gameView.webContents.emit("before-input-event", { preventDefault() { prevented = true; } }, { type: "keyDown", key: "F5", control: true });
       state.keyboardModifiedPrevented = prevented;
     } else if (process.env.R06_SCENARIO === "keymap-race") {
-      game.webContents.emit("did-finish-load");
+      game.gameView.webContents.emit("did-finish-load");
       await bounded(state.keymapStarted, "delayed keymap read");
       game.close();
       state.listeners.activate();
@@ -253,8 +266,9 @@ async function createHarness() {
       state.listeners["window-all-closed"]();
     }
     const snapshot = {
-      pid: process.pid, platform: process.platform, quits: state.quits, relaunches: state.relaunches, relaunchSnapshots: state.relaunchSnapshots, quitSnapshots: state.quitSnapshots, initialGame: game ? { reloads: game.reloads, shows: game.shows, destroyed: game.destroyed } : null,
+      pid: process.pid, platform: process.platform, quits: state.quits, relaunches: state.relaunches, relaunchSnapshots: state.relaunchSnapshots, quitSnapshots: state.quitSnapshots, initialGame: game ? { reloads: game.gameView.reloads, shows: game.shows, destroyed: game.destroyed } : null,
       games: games().length, instances: state.instances.map(window => ({ role: window.role, webPreferences: Object.fromEntries(["sandbox", "contextIsolation", "nodeIntegration", "webSecurity"].map(key => [key, window.options.webPreferences[key]])), destroyed: window.destroyed, reloads: window.reloads, shows: window.shows, hides: window.hides })),
+      views: state.views.map(view => ({ role: view.role, preload: view.options.webPreferences.preload, webPreferences: Object.fromEntries(["sandbox", "contextIsolation", "nodeIntegration", "webSecurity"].map(key => [key, view.options.webPreferences[key]])), bounds: view.bounds, visible: view.visible, reloads: view.reloads })),
       urls: state.urls ?? [], dialogs: state.dialogs, dialogParents: state.dialogParents, opened: state.opened, flushes: state.flushes, backups: state.backups,
       afterRepeatedActivation: state.afterRepeatedActivation, afterStaleCallbacks: state.afterStaleCallbacks, staleSnapshot: state.staleSnapshot,
       auxiliaryAlive: state.auxiliaryAlive, backupWindowSecure: state.backupWindowSecure, replacementShown: state.replacementShown, keyboardPrevented: state.keyboardPrevented,
@@ -292,6 +306,10 @@ test("game, cheat editor, chart, and Backup windows use the secure web preferenc
     assert.deepEqual(window.webPreferences, securePreferences, `${role} window`);
   }
   assert.deepEqual(state.backupWindowSecure, securePreferences, "Backup window");
+  assert.deepEqual(state.views.find(view => view.role === "game-view").webPreferences, securePreferences, "game view");
+  assert.deepEqual(state.views.find(view => view.role === "bar-view").webPreferences, securePreferences, "bar view");
+  assert.match(state.views.find(view => view.role === "game-view").preload, /preload-cheats\.cjs$/);
+  assert.match(state.views.find(view => view.role === "bar-view").preload, /bar-window[\\/]preload\.cjs$/);
 });
 
 test("activation reopens one game window while chart and cheat editor survive, and stale callbacks cannot affect it", async () => {
