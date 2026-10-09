@@ -18,8 +18,12 @@ ipcMain.on("dialog:resize", (event, height) => {
     ? screen.getDisplayMatching(dialog.parent.getBounds())
     : screen.getDisplayMatching(dialog.window.getBounds());
   const workAreaHeight = display.workAreaSize.height;
+  if (dialog.resizeCount >= 3) return;
+  dialog.resizeCount++;
+  const capped = Math.ceil(height) >= workAreaHeight;
   dialog.window.setContentSize(560, Math.min(Math.ceil(height), workAreaHeight));
   dialog.window.show();
+  dialog.window.webContents.send("dialog:resized", { capped });
 });
 ipcMain.on("dialog:respond", (event, index) => {
   const dialog = getDialog(event);
@@ -52,7 +56,7 @@ export function showThemedMessageBox(parent, options) {
       },
     });
     const contentsId = window.webContents.id;
-    const dialog = { window, parent, options: dialogOptions, resolve };
+    const dialog = { window, parent, options: dialogOptions, resolve, resizeCount: 0 };
     let fallbackTimer;
     dialogs.set(contentsId, dialog);
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));

@@ -1,3 +1,4 @@
+import { dialogSize } from "./size.mjs";
 const bridge = window.confirmationDialog;
 const title = document.getElementById("title");
 const message = document.getElementById("message");
@@ -49,4 +50,15 @@ const content = document.getElementById("content");
 const buttonsHeight = buttonContainer.offsetHeight;
 const styles = getComputedStyle(main);
 const verticalSpace = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom) + buttonsHeight + parseFloat(styles.gap);
-bridge.resize(document.querySelector(".titlebar").offsetHeight + verticalSpace + content.scrollHeight);
+const frame = content.firstElementChild;
+const measureHeight = () => document.querySelector(".titlebar").offsetHeight + verticalSpace + frame.getBoundingClientRect().height;
+let corrections = 0;
+bridge.onResized(({ capped }) => {
+  content.style.overflowY = capped ? "auto" : "hidden";
+  if (capped || frame.getBoundingClientRect().height <= content.clientHeight) return;
+  const next = dialogSize(measureHeight(), corrections, true);
+  if (!next) return;
+  corrections = next.corrections;
+  bridge.resize(next.height);
+});
+bridge.resize(dialogSize(measureHeight()).height);

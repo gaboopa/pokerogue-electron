@@ -76,18 +76,17 @@ window.addEventListener("keyup", remapKeyboardEvent, true);
 window.addEventListener("blur", () => remapper.releaseAll());
 ipcRenderer.on("keybindings:update", (_event, mappings) => remapper.replaceMappings(mappings));
 
-function positionCheatBadge() {
+function hideCheatBadge() {
   const badge = document.getElementById("desktop-cheats-active");
   if (!badge) return false;
-  badge.style.left = "8px";
-  badge.style.right = "auto";
+  badge.style.display = "none";
   return true;
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  if (positionCheatBadge()) return;
+  if (hideCheatBadge()) return;
   const observer = new MutationObserver(() => {
-    if (!positionCheatBadge()) return;
+    if (!hideCheatBadge()) return;
     observer.disconnect();
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
