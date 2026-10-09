@@ -247,27 +247,6 @@ test("an interrupted applying marker shows retained copies and blocks retry", as
   assert.deepEqual(await attempts(userData), []);
 });
 
-test("legacy pending requests with retained rollback copies are blocked and show their paths", async () => {
-  const h = await harness();
-  const userData = join(h.root, "user");
-  await mkdir(userData, { recursive: true });
-  const recoveryPath = join(userData, ".restore-rollback-legacy");
-  await mkdir(recoveryPath);
-  await writeFile(join(recoveryPath, "preserved"), "original");
-  const markerPath = join(userData, "pending-restore.json");
-  const selected = join(h.root, "legacy-selected");
-  await writeFile(markerPath, JSON.stringify({ selected, safetyBackup: join(userData, "safety" ) }));
-  const result = await launch(h, userData, { R05_DIALOG_RESPONSE: "cancel" });
-  const failed = JSON.parse(await readFile(markerPath, "utf8"));
-  assert.equal(failed.status, "failed");
-  assert.equal(failed.recoveryRequired, true);
-  assert.ok(result.dialogs[0].detail.includes(recoveryPath));
-  assert.equal(result.dialogs[0].buttons.includes("Choose another Backup"), false);
-  assert.equal(result.dialogs[0].cancelId, 2);
-  assert.equal(result.windows, 0);
-  assert.deepEqual(await attempts(userData), []);
-});
-
 test("invalid markers with retained rollback copies stay blocked and show their paths", async () => {
   const h = await harness();
   const userData = join(h.root, "user");
@@ -362,7 +341,7 @@ test("malformed pending marker is recorded failed before a fresh cold restore is
   assert.equal(result.coordinator.created[0].payload.selectedBackup, join(h.root, "fresh-backup"));
 });
 
-test("failed recovery-copy scans make malformed, invalid, and legacy requests unknown", async () => {
+test("failed recovery-copy scans make malformed, invalid, and unversioned requests unknown", async () => {
   const markers = [
     "{",
     JSON.stringify({ version: 99, status: "applying", selected: "selected" }),

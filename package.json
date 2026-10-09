@@ -7,7 +7,7 @@
   "main": "src/bootstrap.mjs",
   "description": "Offline Electron wrapper for PokeRogue",
   "scripts": {
-    "dev": "node scripts/dev.mjs",
+    "dev": "npm run build:game && electron .",
     "build:game": "node scripts/build-game.mjs",
     "stage:game": "node scripts/build-game.mjs --stage-only",
     "run:packaged": "electron .",

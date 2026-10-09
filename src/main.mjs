@@ -22,6 +22,7 @@ import { clearTerminalIntent, createIntent, prepareResumeIntent, readCurrentInte
 import { formatDiagnosticReport, summarizeBackups } from "./diagnostics.mjs";
 import { showThemedMessageBox } from "./dialog-main.mjs";
 import { activateMenuItem, calculateViewBounds, serializeMenuTemplate, trackLoneAlt, transitionFullscreenReveal } from "./window-bar.mjs";
+import { createChildWindow } from "./child-window.mjs";
 
 protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: false, stream: true } }]);
 app.setName(PRODUCT_NAME);
@@ -61,6 +62,10 @@ function getGameWebContents() {
   return getLiveMainWindow() && gameView ? gameView.webContents : undefined;
 }
 
+function getProfileContext() {
+  return globalThis[Symbol.for("pokerogue.profile-context")];
+}
+
 function updateMainViewLayout() {
   const window = getLiveMainWindow();
   if (!window || !gameView || !barView) return;
@@ -94,7 +99,7 @@ function updateFullscreenPointerTracking(window) {
 
 async function pushBarState() {
   if (!barView || barView.webContents.isDestroyed()) return;
-  const profileName = globalThis[Symbol.for("pokerogue.profile-context")]?.name ?? null;
+  const profileName = getProfileContext()?.name ?? null;
   try {
     const document = await loadCheatDocument(paths().cheats);
     if (!barView || barView.webContents.isDestroyed()) return;
@@ -115,21 +120,24 @@ function pushMaximizedState() {
 }
 
 function registerBarIpc() {
-  ipcMain.on("bar:activate", (event, id) => {
+  const onBar = (channel, handler) => ipcMain.on(channel, (event, ...args) => {
     if (!barView || event.sender.id !== barView.webContents.id) return;
+    handler(event, ...args);
+  });
+  onBar("bar:activate", (event, id) => {
     const result = activateMenuItem({ template: mainMenuTemplate, id, senderId: event.sender.id, barId: barView.webContents.id });
     if (result === "quit") app.quit();
     else if (result === "minimize") getLiveMainWindow()?.minimize();
     else if (result === "close") getLiveMainWindow()?.close();
     else if (result === "zoom") { const window = getLiveMainWindow(); if (window) window.isMaximized() ? window.unmaximize() : window.maximize(); }
   });
-  ipcMain.on("bar:menu-opened", event => { if (barView && event.sender.id === barView.webContents.id) { menuOpen = true; fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "menu-open" }, Date.now()); barView.webContents.focus(); updateMainViewLayout(); } });
-  ipcMain.on("bar:menu-closed", event => { if (barView && event.sender.id === barView.webContents.id) { menuOpen = false; updateMainViewLayout(); getGameWebContents()?.focus(); } });
-  ipcMain.on("bar:escape", event => { if (barView && event.sender.id === barView.webContents.id && getLiveMainWindow()?.isFullScreen()) { menuOpen = false; fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "escape" }, Date.now()); updateMainViewLayout(); getGameWebContents()?.focus(); } });
-  ipcMain.on("bar:minimize", event => { if (barView && event.sender.id === barView.webContents.id) getLiveMainWindow()?.minimize(); });
-  ipcMain.on("bar:toggle-maximize", event => { if (!barView || event.sender.id !== barView.webContents.id) return; const window = getLiveMainWindow(); if (window) window.isMaximized() ? window.unmaximize() : window.maximize(); });
-  ipcMain.on("bar:close", event => { if (barView && event.sender.id === barView.webContents.id) getLiveMainWindow()?.close(); });
-  ipcMain.on("bar:open-update", event => { if (barView && event.sender.id === barView.webContents.id) openUpdateWindow(); });
+  onBar("bar:menu-opened", () => { menuOpen = true; fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "menu-open" }, Date.now()); barView.webContents.focus(); updateMainViewLayout(); });
+  onBar("bar:menu-closed", () => { menuOpen = false; updateMainViewLayout(); getGameWebContents()?.focus(); });
+  onBar("bar:escape", () => { if (getLiveMainWindow()?.isFullScreen()) { menuOpen = false; fullscreenReveal = transitionFullscreenReveal(fullscreenReveal, { type: "escape" }, Date.now()); updateMainViewLayout(); getGameWebContents()?.focus(); } });
+  onBar("bar:minimize", () => getLiveMainWindow()?.minimize());
+  onBar("bar:toggle-maximize", () => { const window = getLiveMainWindow(); if (window) window.isMaximized() ? window.unmaximize() : window.maximize(); });
+  onBar("bar:close", () => getLiveMainWindow()?.close());
+  onBar("bar:open-update", () => openUpdateWindow());
   ipcMain.on("update:cancel", event => { if (updateWindow && !updateWindow.isDestroyed() && event.sender.id === updateWindow.webContents.id && updateAbortController) updateAbortController.abort(); });
   ipcMain.on("update:close", event => { if (updateWindow && !updateWindow.isDestroyed() && event.sender.id === updateWindow.webContents.id) updateWindow.close(); });
 }
@@ -146,14 +154,11 @@ function openUpdateWindow() {
   if (updateWindow && !updateWindow.isDestroyed()) { updateWindow.show(); updateWindow.focus(); return; }
   const parent = getLiveMainWindow();
   if (!parent) return;
-  const window = new BrowserWindow({
-    width: 560, height: 300, parent, modal: false, frame: false, resizable: false, show: false, autoHideMenuBar: true,
+  const window = createChildWindow({
+    width: 560, height: 300, parent, modal: false, resizable: false,
     title: `Updating to ${updateProgressState.version}`,
-    webPreferences: { preload: join(moduleRoot, "src", "update-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
-  });
+  }, join(moduleRoot, "src", "update-window", "preload.cjs"));
   updateWindow = window;
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.webContents.on("will-navigate", event => event.preventDefault());
   window.webContents.on("did-finish-load", () => {
     if (updateWindow !== window || window.isDestroyed()) return;
     if (!updateProgressState) { window.close(); return; }
@@ -198,12 +203,12 @@ function showColdBackupFailed(intent, detail) {
 
 function paths() {
   const userData = app.getPath("userData");
-  const root = globalThis[Symbol.for("pokerogue.profile-context")]?.root ?? userData;
+  const root = getProfileContext()?.root ?? userData;
   return { root, userData, backupRoot: join(userData, "Save Backups"), downloadRoot: join(userData, "Updates"), keymap: join(root, "keymap.json"), cheats: join(userData, "cheats.json") };
 }
 
 async function diagnosticFacts() {
-  const profileContext = globalThis[Symbol.for("pokerogue.profile-context")];
+  const profileContext = getProfileContext();
   const unavailable = "unavailable";
   const facts = {
     version: unavailable, packaged: unavailable, platform: unavailable, arch: unavailable, osVersion: unavailable,
@@ -214,15 +219,15 @@ async function diagnosticFacts() {
   };
   try { facts.version = app.getVersion(); } catch {}
   try { facts.packaged = app.isPackaged; } catch {}
-  try { facts.platform = process.platform; } catch {}
-  try { facts.arch = process.arch; } catch {}
+  facts.platform = process.platform;
+  facts.arch = process.arch;
   try {
     const systemName = { win32: "Windows", darwin: "macOS", linux: "Linux" }[process.platform] ?? process.platform;
     facts.osVersion = `${systemName} ${process.getSystemVersion()}`;
   } catch {}
-  try { facts.electron = process.versions.electron; } catch {}
-  try { facts.chrome = process.versions.chrome; } catch {}
-  try { facts.node = process.versions.node; } catch {}
+  facts.electron = process.versions.electron;
+  facts.chrome = process.versions.chrome;
+  facts.node = process.versions.node;
   try {
     const revisionPath = app.isPackaged ? join(process.resourcesPath, "revisions.json") : join(moduleRoot, "staging", "revisions.json");
     const revisions = JSON.parse(await readFile(revisionPath, "utf8"));
@@ -269,7 +274,7 @@ async function flushAndRestartForProfile() {
 }
 
 async function switchProfile(name) {
-  const current = globalThis[Symbol.for("pokerogue.profile-context")]?.name ?? null;
+  const current = getProfileContext()?.name ?? null;
   if (name === current) return;
   if (await profileSwitchBusy()) { await showProfileBusy(); createMenu(); return; }
   const result = await showMessageBox({
@@ -325,14 +330,11 @@ function toggleChartWindow(chart) {
     else { existing.show(); existing.focus(); }
     return;
   }
-  const chartWindow = new BrowserWindow({
-    width: chart.width, height: chart.height + 48, useContentSize: true, show: false, autoHideMenuBar: true, frame: false, title: chart.label,
+  const chartWindow = createChildWindow({
+    width: chart.width, height: chart.height + 48, useContentSize: true, title: chart.label,
     ...(windowIcon ? { icon: windowIcon } : {}),
-    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
   });
   chartWindows.set(chart.id, chartWindow);
-  chartWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  chartWindow.webContents.on("will-navigate", event => event.preventDefault());
   chartWindow.once("ready-to-show", () => {
     if (chartWindows.get(chart.id) === chartWindow && !chartWindow.isDestroyed()) chartWindow.show();
   });
@@ -673,28 +675,12 @@ async function applyPendingRestore() {
     await recordInvalidRestoreMarker(marker, recovery);
     return;
   }
-  const legacyPending = marker && typeof marker === "object" && !Array.isArray(marker) && marker.status === undefined && typeof marker.selected === "string";
-  if (legacyPending) {
-    marker = { version: 1, status: "pending", selected: marker.selected, ...(typeof marker.safetyBackup === "string" ? { safetyBackup: marker.safetyBackup } : {}) };
-  }
   if (!validRestoreMarker(marker)) {
     const recovery = await findRecoveryPaths(marker);
     const blocked = recovery.recoveryPaths.length > 0 || Boolean(recovery.scanError);
     const failed = { version: 1, status: "failed", selected: typeof marker?.selected === "string" ? marker.selected : "Unavailable", safetyBackup: typeof marker?.safetyBackup === "string" ? marker.safetyBackup : "Unavailable", recoveryPaths: recovery.recoveryPaths, recoveryRequired: blocked, error: { message: `The restore request has an unsupported or incomplete format and was not applied.${recovery.scanError ? ` Recovery-copy scan failed: ${recovery.scanError}` : ""}` } };
     await recordInvalidRestoreMarker(failed, recovery);
     return;
-  }
-
-  if (legacyPending) {
-    const recovery = await findRecoveryPaths(marker);
-    if (recovery.recoveryPaths.length || recovery.scanError) {
-      marker = { ...marker, status: "failed", recoveryRequired: true, recoveryPaths: recovery.recoveryPaths, error: { message: `A previous restore may have stopped before its recovery state could be confirmed. The Backup was not applied again.${recovery.scanError ? ` Recovery-copy scan failed: ${recovery.scanError}` : ""}` } };
-      try { await writeRestoreMarker(marker); }
-      catch (error) { marker.error.message += ` Could not update the request: ${error.message}`; }
-      startupRecoveryBlocked = true;
-      await showRestoreRecovery(marker, marker.error.message, { blocked: true });
-      return;
-    }
   }
 
   if (marker.status === "completed") {
@@ -795,19 +781,15 @@ async function performUpdateCheck() {
     const answer = await showMessageBox({ type: "info", title: "Update available", message: `Version ${result.manifest.version} is available.`, detail: "Downloading requires a restart to make the cold Backup before the installer can be opened. Continue?", buttons: ["Download and Restart", "Cancel"], defaultId: 0, cancelId: 1 });
     if (answer.response !== 0) return { available: true, downloaded: false };
     let lastPercent = -1;
-    let lastPublishedPercent = 0;
     updateAbortController = new AbortController();
     publishUpdateProgress({ version: result.manifest.version, received: 0, total: result.artifact.size });
     const onProgress = (received, total) => {
-      const percent = Math.floor(received / total * 100);
+      const percent = Math.round(received / total * 100);
       if (percent !== lastPercent) {
         lastPercent = percent;
         getLiveMainWindow()?.setProgressBar(received / total);
+        publishUpdateProgress({ version: result.manifest.version, received, total });
       }
-      const publishedPercent = Math.round(received / total * 100);
-      if (publishedPercent === lastPublishedPercent) return;
-      lastPublishedPercent = publishedPercent;
-      publishUpdateProgress({ version: result.manifest.version, received, total });
     };
     try {
       await downloadVerified(result.artifact, paths().downloadRoot, { onProgress, signal: updateAbortController.signal });
@@ -847,7 +829,7 @@ function createMenu() {
   ];
   const utilities = createUtilitiesSubmenu({ openExternal: openExternalUtility, openChart: toggleChartWindow });
   const cheats = [{ label: "Configure Cheats…", click: () => cheatController.openWindow() }];
-  const profileContext = globalThis[Symbol.for("pokerogue.profile-context")];
+  const profileContext = getProfileContext();
   mainMenuTemplate = createMenuTemplate({
     isMac,
     productName: PRODUCT_NAME,
@@ -874,7 +856,7 @@ function createMenu() {
 
 async function createWindow() {
   const isMac = process.platform === "darwin";
-  const profileName = globalThis[Symbol.for("pokerogue.profile-context")]?.name ?? null;
+  const profileName = getProfileContext()?.name ?? null;
   const window = new BrowserWindow({
     width: 1280, height: 800, minWidth: 800, minHeight: 600, backgroundColor: "#000000", show: false,
     ...(isMac ? { titleBarStyle: "hidden", trafficLightPosition: { x: 20, y: 18 } } : { frame: false }),

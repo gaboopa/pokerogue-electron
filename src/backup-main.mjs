@@ -1,5 +1,6 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { ipcMain } from "electron";
 import { join } from "node:path";
+import { createChildWindow } from "./child-window.mjs";
 import { listBackups, resolveBackupName } from "./backup-list.mjs";
 
 export function createBackupController({ moduleRoot, backupRoot, icon, getMainWindow, validateBackup, restorePath, chooseFolder }) {
@@ -14,13 +15,10 @@ export function createBackupController({ moduleRoot, backupRoot, icon, getMainWi
 
   function openWindow() {
     if (backupWindow && !backupWindow.isDestroyed()) { backupWindow.show(); backupWindow.focus(); return; }
-    backupWindow = new BrowserWindow({
-      width: 800, height: 560, minWidth: 680, minHeight: 440, show: false, autoHideMenuBar: true, title: "Backups", frame: false,
+    backupWindow = createChildWindow({
+      width: 800, height: 560, minWidth: 680, minHeight: 440, title: "Backups",
       parent: getMainWindow() ?? undefined, ...(icon ? { icon } : {}),
-      webPreferences: { preload: join(moduleRoot, "src", "backup-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
-    });
-    backupWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    backupWindow.webContents.on("will-navigate", event => event.preventDefault());
+    }, join(moduleRoot, "src", "backup-window", "preload.cjs"));
     const window = backupWindow;
     window.once("ready-to-show", () => window.show());
     window.on("closed", () => { if (backupWindow === window) backupWindow = undefined; });

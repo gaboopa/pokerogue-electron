@@ -1,5 +1,6 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { ipcMain } from "electron";
 import { join } from "node:path";
+import { createChildWindow } from "./child-window.mjs";
 
 export function createProfileController({ moduleRoot, icon, getMainWindow, createAndRestart }) {
   let profileWindow;
@@ -11,13 +12,10 @@ export function createProfileController({ moduleRoot, icon, getMainWindow, creat
 
   function openWindow() {
     if (profileWindow && !profileWindow.isDestroyed()) { profileWindow.show(); profileWindow.focus(); return; }
-    profileWindow = new BrowserWindow({
-      width: 480, height: 360, resizable: false, show: false, autoHideMenuBar: true, title: "New Profile", frame: false,
+    profileWindow = createChildWindow({
+      width: 480, height: 360, resizable: false, title: "New Profile",
       parent: getMainWindow() ?? undefined, ...(icon ? { icon } : {}),
-      webPreferences: { preload: join(moduleRoot, "src", "profile-window", "preload.cjs"), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
-    });
-    profileWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-    profileWindow.webContents.on("will-navigate", event => event.preventDefault());
+    }, join(moduleRoot, "src", "profile-window", "preload.cjs"));
     const window = profileWindow;
     window.once("ready-to-show", () => window.show());
     window.on("closed", () => { if (profileWindow === window) profileWindow = undefined; });
